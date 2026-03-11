@@ -2,5 +2,7 @@ node_modules
 dist
 .next
 .env
+.env.local
 .DS_Store
 screenshots/
+.pnpm-store
