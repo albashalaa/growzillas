@@ -6,3 +6,4 @@ dist
 .DS_Store
 screenshots/
 .pnpm-store
+repo-backups/

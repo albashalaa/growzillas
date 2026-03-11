@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrgRole {
+  ADMIN
+  MEMBER
+}
+
+enum TaskMemberRole {
+  ASSIGNEE
+  WATCHER
+}
+
+enum StoryType {
+  COMMENT
+  ACTIVITY
+}
+
+model Todo {
+  id        String   @id @default(uuid())
+  title     String
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  passwordHash String?
+  provider     String?     // 'local' or 'google'
+  providerId   String?     // Google user ID
+  firstName    String?
+  lastName     String?
+  displayName  String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  memberships      OrgMember[]
+  createdInvites   OrgInvite[]
+  taskMemberships  TaskMembership[] @relation("UserTaskMemberships")
+  stories          Story[]
+  taskAttachments  TaskAttachment[] @relation("UserTaskAttachments")
+  notifications    Notification[]
+}
+
+model Organization {
+  id        String      @id @default(uuid())
+  name      String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  members         OrgMember[]
+  invites         OrgInvite[]
+  tasks           Task[]           @relation("OrgTasks")
+  taskMemberships TaskMembership[] @relation("OrgTaskMemberships")
+  notifications   Notification[]
+}
+
+model OrgMember {
+  id        String       @id @default(uuid())
+  orgId     String
+  userId    String
+  role      OrgRole      @default(MEMBER)
+  createdAt DateTime     @default(now())
+  
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@index([orgId])
+}
+
+model OrgInvite {
+  id              String    @id @default(uuid())
+  orgId           String
+  email           String
+  role            OrgRole   @default(MEMBER)
+  token           String    @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  createdByUserId String
+  
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdByUserId], references: [id])
+  
+  @@index([token])
+  @@index([orgId])
+  @@index([email])
+}
+
+model Project {
+  id          String           @id @default(uuid())
+  orgId       String
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  archivedAt  DateTime?
+
+  sections    ProjectSection[]
+  tasks       Task[]        @relation("ProjectTasks")
+
+  @@index([orgId])
+}
+
+model ProjectSection {
+  id        String   @id @default(uuid())
+  orgId     String
+  projectId String
+  name      String
+  order     Int
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  tasks     Task[]   @relation("SectionTasks")
+
+  @@index([orgId])
+  @@index([projectId])
+  @@unique([projectId, name])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  orgId       String
+  projectId   String
+  sectionId   String
+  title       String
+  description String?
+  dueDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  parentId    String?
+
+  organization Organization   @relation("OrgTasks", fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project        @relation("ProjectTasks", fields: [projectId], references: [id], onDelete: Cascade)
+  section      ProjectSection @relation("SectionTasks", fields: [sectionId], references: [id], onDelete: Cascade)
+  memberships  TaskMembership[] @relation("TaskMemberships")
+  stories      Story[]
+  attachments  TaskAttachment[]
+  notifications Notification[]
+
+  parent   Task?  @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks Task[] @relation("TaskSubtasks")
+
+  @@index([orgId, projectId])
+  @@index([orgId, sectionId])
+  @@index([projectId, parentId])
+}
+
+model TaskMembership {
+  id        String   @id @default(uuid())
+  orgId     String
+  taskId    String
+  userId    String
+  role      TaskMemberRole @default(ASSIGNEE)
+  createdAt DateTime @default(now())
+
+  organization Organization @relation("OrgTaskMemberships", fields: [orgId], references: [id], onDelete: Cascade)
+  task         Task         @relation("TaskMemberships", fields: [taskId], references: [id], onDelete: Cascade)
+  user         User         @relation("UserTaskMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([orgId, userId])
+}
+
+model Story {
+  id          String    @id @default(uuid())
+  orgId       String
+  taskId      String
+  type        StoryType
+  body        String?
+  metadata    Json?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  notifications Notification[]
+
+  @@index([orgId, taskId, createdAt])
+}
+
+model TaskAttachment {
+  id            String   @id @default(uuid())
+  taskId        String
+  orgId         String
+  fileName      String
+  fileUrl       String
+  mimeType      String?
+  fileSize      Int?
+  uploadedById  String?
+  createdAt     DateTime @default(now())
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("UserTaskAttachments", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([orgId, taskId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  orgId     String
+  userId    String
+  storyId   String
+  taskId    String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story Story        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  task  Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([orgId, userId])
+  @@index([storyId])
+  @@unique([userId, storyId, type])
+}
