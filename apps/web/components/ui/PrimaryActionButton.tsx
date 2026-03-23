@@ -21,6 +21,7 @@ export function PrimaryActionButton({
 }: PrimaryActionButtonProps) {
   return (
     <button
+      className="primary-action-button"
       type={type}
       onClick={onClick}
       disabled={disabled}

@@ -37,18 +37,9 @@ function InviteInner() {
       }
 
       try {
-        const res = await fetch(
-          `http://localhost:3002/invites/validate?token=${encodeURIComponent(
-            token,
-          )}`,
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({
-            message: 'Invalid invite',
-          }));
-          throw new Error(err.message || 'Invalid invite');
-        }
-        const data = (await res.json()) as InviteInfo;
+        const data = (await apiFetch(
+          `/invites/validate?token=${encodeURIComponent(token)}`,
+        )) as InviteInfo;
         setInvite(data);
       } catch (err: any) {
         setError(err.message || 'Failed to validate invite');

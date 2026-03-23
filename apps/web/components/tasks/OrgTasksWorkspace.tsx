@@ -243,7 +243,9 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
 
       const sectionsEntries = await Promise.all(
         projectsList.map(async (p) => {
-          const secs = await apiFetch(`/projects/${p.id}/sections`);
+          const secs = await apiFetch(`/projects/${p.id}/sections`, {
+            headers: { 'x-org-id': orgId },
+          });
           return [p.id, secs as ProjectSection[]] as const;
         }),
       );

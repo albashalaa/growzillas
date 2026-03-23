@@ -5,6 +5,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_BASE_URL } from '../../lib/api';
 import { handlePostAuthRedirect } from '../../lib/postAuthRedirect';
 
 function LoginInner() {
@@ -44,7 +45,7 @@ function LoginInner() {
       if (returnTo) {
         window.localStorage.setItem('auth_returnTo', returnTo);
       }
-      window.location.href = 'http://localhost:3002/auth/google';
+      window.location.href = `${API_BASE_URL}/auth/google`;
     }
   };
 

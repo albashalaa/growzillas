@@ -372,6 +372,19 @@ html.dark .login-card {
   border-color: var(--theme-border) !important;
 }
 
+/* Unify shared action buttons in dark mode (New Project, Add Task) */
+html.dark .primary-action-button {
+  background-color: var(--theme-cta-bg) !important; /* neutral dark grey */
+  color: var(--theme-cta-text) !important; /* near-white text */
+  border: 1px solid var(--theme-border) !important;
+  border-radius: 0.5rem !important; /* rounded-lg like Send invite */
+  box-shadow: var(--theme-shadow-sm) !important; /* subtle shadow */
+}
+
+html.dark .primary-action-button:hover:not(:disabled) {
+  background-color: var(--theme-surface-4) !important;
+}
+
 html.dark .login-card input,
 html.dark .login-card select,
 html.dark .login-card textarea {

@@ -8,6 +8,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react';
+import { usePathname } from 'next/navigation';
 import { getToken, setToken, clearToken } from '../lib/auth';
 import { apiFetch } from '../lib/api';
 
@@ -37,6 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const isFetchingMeRef = useRef(false);
+  const pathname = usePathname();
+  const currentOrgId = pathname.match(/^\/org\/([^/]+)/)?.[1] ?? null;
 
   const refreshMe = useCallback(async () => {
     if (isFetchingMeRef.current) {
@@ -90,6 +93,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
   }, [refreshMe]);
+
+  // Keep role/org context in sync when navigating between orgs without
+  // a full page reload (admin-only UI is role-gated).
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    if (!currentOrgId) return;
+    void refreshMe();
+  }, [currentOrgId, refreshMe]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, refreshMe }}>

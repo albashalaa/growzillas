@@ -103,6 +103,10 @@ export class TenancyGuard implements CanActivate {
     // Mirror onto request.user.orgId for compatibility with existing services
     // that still read org context from req.user.
     (request.user as any).orgId = orgId;
+    // Keep the effective role in sync with the validated membership for this org.
+    // Without this, admin-only routes may be evaluated against a role picked
+    // arbitrarily by the JWT strategy (e.g. first membership).
+    (request.user as any).role = membership.role;
 
     return true;
   }

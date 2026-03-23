@@ -113,7 +113,34 @@ export class AuthController {
   async getProfile(@Request() req: { user: RequestUser }) {
     // ✅ SECURE: All data from JWT (populated by JwtStrategy and TenancyGuard)
     // orgId/role may be empty when the user has no org membership yet.
-    const hasOrg = !!req.user.orgId;
+    // If the client provides x-org-id, prefer that org context (after verifying
+    // membership) so UI role-gating stays correct on /org/:orgId/* pages.
+    let effectiveOrgId = req.user.orgId;
+    let effectiveRole = req.user.role;
+
+    const headerOrgId = (req as any)?.headers?.['x-org-id'] as
+      | string
+      | undefined;
+    if (headerOrgId) {
+      const membership = await this.prisma.orgMember.findUnique({
+        where: {
+          orgId_userId: {
+            orgId: headerOrgId,
+            userId: req.user.userId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (membership) {
+        effectiveOrgId = headerOrgId;
+        effectiveRole = membership.role;
+      } else {
+        effectiveOrgId = '';
+      }
+    }
+
+    const hasOrg = !!effectiveOrgId;
 
     // Cast to any so this stays compatible even if Prisma types
     // haven’t been regenerated yet for new fields like bio/avatarUrl.
@@ -134,8 +161,8 @@ export class AuthController {
       lastName: dbUser?.lastName ?? null,
       bio: (dbUser as any)?.bio ?? null,
       avatarUrl: (dbUser as any)?.avatarUrl ?? null,
-      orgId: req.user.orgId, // From membership lookup (may be empty)
-      role: hasOrg ? req.user.role : null, // Null when no membership
+      orgId: effectiveOrgId, // From membership lookup (may be empty)
+      role: hasOrg ? effectiveRole : null, // Null when no membership
       member: hasOrg,
     };
   }

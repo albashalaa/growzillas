@@ -342,7 +342,9 @@ export function TaskDrawer({
     const loadMeta = async () => {
       try {
         const [sectionsData, membersData] = await Promise.all([
-          apiFetch(`/projects/${task.projectId}/sections`),
+          apiFetch(`/projects/${task.projectId}/sections`, {
+            headers: { 'x-org-id': orgId },
+          }),
           apiFetch(`/orgs/${orgId}/members`),
         ]);
         setSections(sectionsData as ProjectSection[]);
@@ -409,7 +411,10 @@ export function TaskDrawer({
       if (!updatedProjectId || updatedProjectId !== task.projectId) return;
       void (async () => {
         try {
-          const sectionsData = await apiFetch(`/projects/${task.projectId}/sections`);
+          const sectionsData = await apiFetch(
+            `/projects/${task.projectId}/sections`,
+            { headers: { 'x-org-id': orgId } },
+          );
           setSections(sectionsData as ProjectSection[]);
         } catch {
           // ignore

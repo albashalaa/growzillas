@@ -184,8 +184,12 @@ export default function ProjectDetailPage() {
       try {
         const [projectData, sectionsData, tasksData, membersData] =
           await Promise.all([
-            apiFetch(`/projects/${projectId}`),
-            apiFetch(`/projects/${projectId}/sections`),
+            apiFetch(`/projects/${projectId}`, {
+              headers: { 'x-org-id': orgId },
+            }),
+            apiFetch(`/projects/${projectId}/sections`, {
+              headers: { 'x-org-id': orgId },
+            }),
             apiFetch(`/tasks?projectId=${projectId}`, {
               headers: { 'x-org-id': orgId },
             }),
@@ -306,6 +310,7 @@ export default function ProjectDetailPage() {
     try {
       const updated = await apiFetch(`/projects/${projectId}`, {
         method: 'PATCH',
+        headers: { 'x-org-id': orgId },
         body: JSON.stringify({
           name: trimmedName,
           description: description.trim() || undefined,
@@ -328,6 +333,7 @@ export default function ProjectDetailPage() {
     try {
       await apiFetch(`/projects/${projectId}`, {
         method: 'DELETE',
+        headers: { 'x-org-id': orgId },
       });
       router.push(`/org/${orgId}/projects`);
     } catch (err: any) {

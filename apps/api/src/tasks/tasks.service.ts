@@ -118,7 +118,35 @@ export class TasksService {
       },
     });
 
-    return tasks.map((task) => ({
+    // Done column should show most recently completed items first.
+    // We apply a Done-only re-ordering here (frontend relies on API order).
+    // completedAt is not present in the current Prisma model; we still code
+    // defensively to prefer it if it exists in future schema revisions.
+    const tasksWithIndex = tasks.map((task, idx) => ({ task, idx }));
+    const isDone = (t: typeof tasksWithIndex[number]['task']) =>
+      t.section?.name?.toLowerCase() === 'done';
+
+    const doneTasks = tasksWithIndex
+      .filter(({ task }) => isDone(task))
+      .sort((a, b) => {
+        const completedA = (a.task as any).completedAt as Date | null | undefined;
+        const completedB = (b.task as any).completedAt as Date | null | undefined;
+
+        const keyA = completedA ? completedA.getTime() : a.task.updatedAt.getTime();
+        const keyB = completedB ? completedB.getTime() : b.task.updatedAt.getTime();
+
+        // DESC: newest first
+        if (keyA !== keyB) return keyB - keyA;
+        // Stable ordering within same timestamp
+        return a.idx - b.idx;
+      });
+
+    let donePtr = 0;
+    const orderedTasks = tasksWithIndex.map(({ task }) =>
+      isDone(task) ? doneTasks[donePtr++].task : task,
+    );
+
+    return orderedTasks.map((task) => ({
       id: task.id,
       title: task.title,
       description: task.description,
@@ -1313,6 +1341,7 @@ export class TasksService {
                 name: true,
               },
             },
+            updatedAt: true,
             memberships: {
               include: {
                 user: {
@@ -1333,7 +1362,37 @@ export class TasksService {
       },
     });
 
-    return memberships.map((m) => ({
+    // Apply Done-only DESC re-ordering using completedAt if it exists,
+    // otherwise updatedAt. Keep Backlog/In Progress/Review untouched.
+    const membershipsWithIndex = memberships.map((m, idx) => ({ m, idx }));
+    const isDone = (t: typeof membershipsWithIndex[number]['m']['task']) =>
+      t.section?.name?.toLowerCase() === 'done';
+
+    const doneMemberships = membershipsWithIndex
+      .filter(({ m }) => isDone(m.task))
+      .sort((a, b) => {
+        const completedA = (a.m.task as any).completedAt as Date | null | undefined;
+        const completedB = (b.m.task as any).completedAt as Date | null | undefined;
+
+        const keyA = completedA
+          ? completedA.getTime()
+          : a.m.task.updatedAt.getTime();
+        const keyB = completedB
+          ? completedB.getTime()
+          : b.m.task.updatedAt.getTime();
+
+        // DESC: newest first
+        if (keyA !== keyB) return keyB - keyA;
+        // Stable ordering within same timestamp
+        return a.idx - b.idx;
+      });
+
+    let donePtr = 0;
+    const orderedMemberships = membershipsWithIndex.map(({ m }) =>
+      isDone(m.task) ? doneMemberships[donePtr++].m : m,
+    );
+
+    return orderedMemberships.map((m) => ({
       id: m.task.id,
       title: m.task.title,
       priority: m.task.priority,

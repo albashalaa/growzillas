@@ -496,50 +496,39 @@ export default function OrgProjectsPage() {
           )}
 
           {/* Search + filters */}
-          <div
-            style={{
-              marginBottom: 22,
-              borderRadius: 18,
-              border: '1px solid #e5e7eb',
-              backgroundColor: '#ffffff',
-              boxShadow: '0 12px 32px rgba(15,23,42,0.06)',
-              padding: '9px 14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 999,
-                backgroundColor: '#f3f4f6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#9ca3af',
-                fontSize: 14,
-                marginRight: 6,
-              }}
-            >
-              🔍
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.06)] sm:px-5">
+            <div className="relative min-w-0 flex-1 sm:max-w-md">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <svg
+                  width={16}
+                  height={16}
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle
+                    cx={7.5}
+                    cy={7.5}
+                    r={3.5}
+                    stroke="#9ca3af"
+                    strokeWidth="1.2"
+                  />
+                  <path
+                    d="M10.3 10.3L12.5 12.5"
+                    stroke="#9ca3af"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <input
+                type="text"
+                placeholder="Search projects..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-[13px] text-slate-900 outline-none transition focus:border-slate-900 focus:bg-white focus:ring-1 focus:ring-slate-900 placeholder:text-slate-400"
+              />
             </div>
-            <input
-              type="text"
-              placeholder="Search projects..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                flex: 1,
-                minWidth: 180,
-                border: 'none',
-                outline: 'none',
-                fontSize: 13,
-                color: '#111827',
-              }}
-            />
           </div>
 
           {/* Projects grid */}
@@ -588,6 +577,7 @@ export default function OrgProjectsPage() {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                       <div
+                        className="text-slate-900 dark:text-neutral-100"
                         style={{
                           width: 30,
                           height: 30,
@@ -598,7 +588,7 @@ export default function OrgProjectsPage() {
                           justifyContent: 'center',
                         }}
                       >
-                        <FolderKanban size={16} color="#111827" />
+                        <FolderKanban size={16} color="currentColor" />
                       </div>
                       <ProjectCardMenu
                         project={p}
@@ -927,7 +917,7 @@ export default function OrgProjectsPage() {
                   type="button"
                   onClick={handleCloseProjectModal}
                   disabled={creating}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
                 >
                   Cancel
                 </button>
@@ -991,68 +981,26 @@ function ProjectCardMenu({
       <button
         type="button"
         onClick={onToggle}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 28,
-          height: 28,
-          borderRadius: 999,
-          border: 'none',
-          backgroundColor: isOpen ? '#f3f4f6' : 'transparent',
-          color: '#6b7280',
-          cursor: 'pointer',
-          transition: 'background-color 150ms',
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#f3f4f6';
-        }}
-        onMouseLeave={(e) => {
-          if (!isOpen) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
-        }}
+        className={[
+          'flex items-center justify-center w-[28px] h-[28px] rounded-full',
+          'cursor-pointer transition-colors duration-150',
+          isOpen
+            ? 'bg-[#f3f4f6] dark:bg-neutral-800'
+            : 'bg-transparent hover:bg-[#f3f4f6] dark:hover:bg-neutral-700',
+          'text-[#6b7280] dark:text-neutral-200',
+        ].join(' ')}
       >
         <MoreHorizontal size={15} />
       </button>
 
       {isOpen && (
         <div
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: '100%',
-            marginTop: 4,
-            minWidth: 150,
-            borderRadius: 12,
-            border: '1px solid #e5e7eb',
-            backgroundColor: '#ffffff',
-            boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
-            padding: '4px 0',
-            zIndex: 50,
-          }}
+          className="absolute right-0 top-[100%] mt-[4px] z-50 min-w-[150px] rounded-[12px] border border-[#e5e7eb] bg-white py-1 shadow-[0_8px_24px_rgba(15,23,42,0.12)] dark:border-neutral-700 dark:bg-[#202020]"
         >
           <button
             type="button"
             onClick={onEdit}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              padding: '8px 12px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              fontSize: 13,
-              color: '#374151',
-              cursor: 'pointer',
-              textAlign: 'left',
-              transition: 'background-color 150ms',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#f9fafb';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
-            }}
+            className="flex items-center gap-2 w-full px-3 py-2 text-[13px] cursor-pointer text-left text-[#374151] transition-colors hover:bg-[#f9fafb] dark:text-neutral-100 dark:hover:bg-neutral-800 dark:rounded-lg"
           >
             <Pencil size={14} />
             Edit project
@@ -1060,26 +1008,7 @@ function ProjectCardMenu({
           <button
             type="button"
             onClick={onDelete}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              padding: '8px 12px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              fontSize: 13,
-              color: '#dc2626',
-              cursor: 'pointer',
-              textAlign: 'left',
-              transition: 'background-color 150ms',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#fef2f2';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
-            }}
+            className="flex items-center gap-2 w-full px-3 py-2 text-[13px] cursor-pointer text-left text-red-600 transition-colors hover:bg-[#fef2f2] dark:text-rose-300 dark:hover:bg-neutral-800 dark:rounded-lg"
           >
             <Trash2 size={14} />
             Delete project

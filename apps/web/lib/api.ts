@@ -28,6 +28,17 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     if (orgMatch && orgMatch[1]) {
       headers['x-org-id'] = orgMatch[1];
     }
+
+    // Fallback for API calls: when the user is currently on an org page in the
+    // browser (/org/:orgId/...), derive orgId from the current pathname.
+    // This keeps /auth/me and other org-role-sensitive responses consistent.
+    if (!headers['x-org-id'] && typeof window !== 'undefined') {
+      const pathname = window.location.pathname || '';
+      const currentOrgMatch = pathname.match(/^\/org\/([^/]+)/);
+      if (currentOrgMatch && currentOrgMatch[1]) {
+        headers['x-org-id'] = currentOrgMatch[1];
+      }
+    }
   }
 
   const url = `${API_BASE_URL}${path}`;
