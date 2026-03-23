@@ -193,6 +193,34 @@ export class AuthService {
   }
 
   /**
+   * Change password for the given user.
+   * Verifies current password and hashes the new password.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
+    return { success: true };
+  }
+
+  /**
    * Switch to a different organization
    * 
    * DEPRECATED: JWT no longer carries orgId.

@@ -22,6 +22,7 @@ interface HomeTask {
 interface Project {
   id: string;
   name: string;
+  status?: string | null;
 }
 
 type HomeNotificationItem = NotificationItem & {
@@ -30,6 +31,52 @@ type HomeNotificationItem = NotificationItem & {
   createdById?: string;
   metadata?: { action?: string };
 };
+
+interface DashboardStats {
+  completedTasks: number;
+  completedTasksChange: number;
+  activeProjects: number;
+  activeProjectsChange: number;
+  upcomingDeadlines: number;
+  teamMembers: number;
+}
+
+function ProjectStatusBadge({ status }: { status: string }) {
+  const normalized = status || 'Onboarding';
+  const key = normalized.toLowerCase();
+
+  let bg = '#dbeafe';
+  let text = '#1d4ed8';
+  if (key === 'established') {
+    bg = '#dcfce7';
+    text = '#16a34a';
+  } else if (key === 'on hold') {
+    bg = '#fef3c7';
+    text = '#d97706';
+  } else if (key === 'terminated') {
+    bg = '#fee2e2';
+    text = '#dc2626';
+  }
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: 999,
+        padding: '4px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+        backgroundColor: bg,
+        color: text,
+      }}
+    >
+      {normalized}
+    </span>
+  );
+}
 
 function startOfToday(): Date {
   const d = new Date();
@@ -55,6 +102,7 @@ export default function OrgHomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [notifications, setNotifications] = useState<HomeNotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [activeTask, setActiveTask] = useState<HomeTask | null>(null);
   const taskStackRef = useRef<HomeTask[]>([]);
 
@@ -62,16 +110,22 @@ export default function OrgHomePage() {
     const load = async () => {
       if (!user) return;
       try {
-        const [tasksData, projectsData, notifData] = await Promise.all([
+        const [tasksData, projectsData, notifData, statsData] = await Promise.all([
           apiFetch('/tasks/my', { headers: { 'x-org-id': orgId } }),
           apiFetch('/projects', { headers: { 'x-org-id': orgId } }).catch(() => []),
           apiFetch('/notifications', { headers: { 'x-org-id': orgId } }).catch(() => []),
+          apiFetch('/dashboard/stats', { headers: { 'x-org-id': orgId } }).catch(
+            () => null,
+          ),
         ]);
         setMyTasks((tasksData as HomeTask[]) ?? []);
         setProjects(Array.isArray(projectsData) ? (projectsData as Project[]) : []);
         setNotifications(
           Array.isArray(notifData) ? (notifData as HomeNotificationItem[]) : [],
         );
+        if (statsData) {
+          setStats(statsData as DashboardStats);
+        }
       } catch {
         setMyTasks([]);
       } finally {
@@ -126,331 +180,256 @@ export default function OrgHomePage() {
     setActiveTask(task);
   };
 
-  const sectionCardStyle: React.CSSProperties = {
-    border: '1px solid #000',
-    padding: '16px',
-    backgroundColor: '#fff',
-    marginBottom: '16px',
-  };
-
-  const sectionTitleStyle: React.CSSProperties = {
-    fontSize: '16px',
-    fontWeight: 600,
-    marginBottom: '12px',
-    color: '#111',
-  };
-
-  const taskRowStyle: React.CSSProperties = {
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    padding: '8px 0',
-    borderBottom: '1px solid #eee',
-    cursor: 'pointer',
-    backgroundColor: 'transparent',
-    border: 'none',
-    fontFamily: 'inherit',
-    fontSize: '14px',
-    color: '#111',
-  };
-
   return (
-    <div style={{ padding: '40px 24px', fontFamily: "'Montserrat', sans-serif" }}>
-      <h1 style={{ fontSize: '24px', marginBottom: '8px', color: '#111' }}>Home</h1>
-      <p style={{ marginBottom: '24px', color: '#555' }}>
-        Welcome. Here's your urgent work and overview.
-      </p>
+    <div className="mx-auto max-w-6xl min-w-0">
+        {/* Top bar */}
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">
+              {user?.firstName
+                ? `Good Morning, ${user.firstName} 👋`
+                : 'Good Morning 👋'}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Here&apos;s what&apos;s happening in your workspace today.
+            </p>
+          </div>
+          <div className="flex items-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+              {today.toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </div>
+          </div>
+        </div>
 
-      {loading ? (
-        <p style={{ color: '#555' }}>Loading…</p>
-      ) : (
-        <>
-          {/* Row 1: Overdue | Due Today */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '24px',
-              marginBottom: '24px',
-            }}
-          >
-            <div style={sectionCardStyle}>
-              <h2 style={sectionTitleStyle}>Overdue</h2>
-              {overdue.length === 0 ? (
-                <p style={{ fontSize: '13px', color: '#555' }}>None</p>
-              ) : (
-                overdue.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    style={taskRowStyle}
-                    onClick={() => openTask(t)}
-                  >
-                    <span style={{ display: 'block', fontWeight: 500 }}>{t.title}</span>
-                    <span style={{ fontSize: '12px', color: '#555' }}>
-                      {t.dueDate
-                        ? new Date(t.dueDate).toLocaleDateString()
-                        : ''}
-                    </span>
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading…</p>
+        ) : (
+          <>
+            {/* Stats row */}
+            <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Tasks Completed</span>
+                  {stats && (
                     <span
-                      style={{
-                        display: 'inline-block',
-                        marginTop: '4px',
-                        padding: '2px 6px',
-                        fontSize: '11px',
-                        backgroundColor: '#c00',
-                        color: '#fff',
-                      }}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        stats.completedTasksChange >= 0
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : 'bg-rose-50 text-rose-600'
+                      }`}
                     >
-                      Overdue
+                      {stats.completedTasksChange >= 0 ? '+' : ''}
+                      {stats.completedTasksChange}%
                     </span>
-                  </button>
-                ))
-              )}
-            </div>
-            <div style={sectionCardStyle}>
-              <h2 style={sectionTitleStyle}>Due Today</h2>
-              {dueToday.length === 0 ? (
-                <p style={{ fontSize: '13px', color: '#555' }}>None</p>
-              ) : (
-                dueToday.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    style={taskRowStyle}
-                    onClick={() => openTask(t)}
-                  >
-                    <span style={{ display: 'block', fontWeight: 500 }}>{t.title}</span>
-                    <span style={{ fontSize: '12px', color: '#555' }}>
-                      {t.dueDate
-                        ? new Date(t.dueDate).toLocaleDateString()
-                        : ''}
+                  )}
+                </div>
+                <p className="mt-4 text-2xl font-semibold text-slate-900">
+                  {stats ? stats.completedTasks : 0}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Active Projects</span>
+                  {stats && (
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        stats.activeProjectsChange >= 0
+                          ? 'bg-sky-50 text-sky-600'
+                          : 'bg-rose-50 text-rose-600'
+                      }`}
+                    >
+                      {stats.activeProjectsChange >= 0 ? '+' : ''}
+                      {stats.activeProjectsChange}
                     </span>
-                  </button>
-                ))
-              )}
+                  )}
+                </div>
+                <p className="mt-4 text-2xl font-semibold text-slate-900">
+                  {stats ? stats.activeProjects : projects.length}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Upcoming Deadlines</span>
+                  <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
+                    Next 48h
+                  </span>
+                </div>
+                <p className="mt-4 text-2xl font-semibold text-slate-900">
+                  {stats ? stats.upcomingDeadlines : dueToday.length + upcoming.length}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Team Members</span>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+                    Active
+                  </span>
+                </div>
+                <p className="mt-4 text-2xl font-semibold text-slate-900">
+                  {stats ? stats.teamMembers : 0}
+                </p>
+              </div>
             </div>
-          </div>
 
-          {/* Row 2: Upcoming | My Tasks Overview */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '24px',
-              marginBottom: '24px',
+            {/* Main content: Recent Tasks & Active Projects */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Recent Tasks */}
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-900">
+                    Recent Tasks
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/org/${orgId}/my-tasks`)}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-900"
+                  >
+                    View all
+                  </button>
+                </div>
+                {myTasks.length === 0 ? (
+                  <p className="text-xs text-slate-500">No tasks yet.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {myTasks.slice(0, 5).map((t) => (
+                      <li key={t.id} className="py-3">
+                        <button
+                          type="button"
+                          onClick={() => openTask(t)}
+                          className="flex w-full min-w-0 items-center justify-between gap-2 text-left"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span
+                              className="mt-0.5 h-2 w-2 rounded-full bg-amber-400"
+                              aria-hidden
+                            />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-900">
+                                {t.title}
+                              </p>
+                              <p className="truncate text-xs text-slate-500">
+                                {t.projectName ?? 'Internal Docs'}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="max-w-[40%] truncate rounded-full border border-slate-200 px-3 py-1 text-[10px] font-semibold uppercase text-slate-600">
+                            {(t.sectionName ?? 'Todo').toUpperCase()}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Active Projects */}
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-900">
+                    Active Projects
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/org/${orgId}/projects`)}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-900"
+                  >
+                    View all
+                  </button>
+                </div>
+                {projects.length === 0 ? (
+                  <p className="text-xs text-slate-500">No projects yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {projects.slice(0, 3).map((p) => {
+                      return (
+                        <div
+                          key={p.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            router.push(
+                              `/org/${orgId}/tasks?projectId=${p.id}&view=board`,
+                            )
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              router.push(
+                                `/org/${orgId}/tasks?projectId=${p.id}&view=board`,
+                              );
+                            }
+                          }}
+                          className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 cursor-pointer transition hover:bg-slate-100 focus:outline-none"
+                        >
+                          <p className="truncate text-sm font-medium text-slate-900">
+                            {p.name}
+                          </p>
+                          <div className="mt-2">
+                            <div className="mb-1 text-[10px] font-medium text-slate-400">
+                              STATUS
+                            </div>
+                            <ProjectStatusBadge
+                              status={(p.status ?? 'Onboarding') as string}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTask && (
+          <TaskDrawer
+            orgId={orgId}
+            task={{
+              ...activeTask,
+              projectName: activeTask.projectName ?? '',
+              sectionName: activeTask.sectionName ?? '',
+            } as HomeTask}
+            parentTaskTitle={
+              taskStackRef.current.length > 0
+                ? taskStackRef.current[0].title
+                : undefined
+            }
+            onClose={() => {
+              taskStackRef.current = [];
+              setActiveTask(null);
             }}
-          >
-            <div style={sectionCardStyle}>
-              <h2 style={sectionTitleStyle}>Upcoming</h2>
-              {upcoming.length === 0 ? (
-                <p style={{ fontSize: '13px', color: '#555' }}>None</p>
-              ) : (
-                upcoming.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    style={taskRowStyle}
-                    onClick={() => openTask(t)}
-                  >
-                    <span style={{ display: 'block', fontWeight: 500 }}>{t.title}</span>
-                    <span style={{ fontSize: '12px', color: '#555' }}>
-                      {t.dueDate
-                        ? new Date(t.dueDate).toLocaleDateString()
-                        : ''}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-            <div style={sectionCardStyle}>
-              <h2 style={sectionTitleStyle}>My Tasks Overview</h2>
-              <p style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>
-                {myTasks.length} task{myTasks.length !== 1 ? 's' : ''} assigned to you
-              </p>
-              <button
-                type="button"
-                onClick={() => router.push(`/org/${orgId}/my-tasks`)}
-                style={{
-                  padding: '8px 16px',
-                  border: '1px solid #000',
-                  backgroundColor: '#000',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                }}
-              >
-                Go to My Tasks
-              </button>
-            </div>
-          </div>
-
-          {/* Row 3: Recent Activity */}
-          <div style={{ ...sectionCardStyle, marginBottom: '24px' }}>
-            <h2 style={sectionTitleStyle}>Recent Activity</h2>
-            {recentActivity.length === 0 ? (
-              <p style={{ fontSize: '13px', color: '#555' }}>No recent activity</p>
-            ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {recentActivity.map((n) => (
-                  <li
-                    key={n.id}
-                    style={{
-                      padding: '6px 0',
-                      borderBottom: '1px solid #eee',
-                      fontSize: '13px',
-                      color: '#111',
-                    }}
-                  >
-                    {n.taskTitle && (
-                      <span style={{ fontWeight: 500 }}>{n.taskTitle}</span>
-                    )}
-                    {n.createdBy?.email && (
-                      <span style={{ color: '#555', marginLeft: '4px' }}>
-                        · {n.createdBy.email}
-                      </span>
-                    )}
-                    <span style={{ color: '#555', marginLeft: '4px', fontSize: '12px' }}>
-                      {new Date(n.createdAt).toLocaleString()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Row 4: Projects */}
-          <div style={sectionCardStyle}>
-            <h2 style={sectionTitleStyle}>Projects</h2>
-            {projects.length === 0 ? (
-              <p style={{ fontSize: '13px', color: '#555' }}>No projects</p>
-            ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {projects.slice(0, 8).map((p) => (
-                  <li key={p.id} style={{ marginBottom: '8px' }}>
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/org/${orgId}/projects/${p.id}`)}
-                      style={{
-                        ...taskRowStyle,
-                        borderBottom: 'none',
-                        padding: '4px 0',
-                      }}
-                    >
-                      {p.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <button
-              type="button"
-              onClick={() => router.push(`/org/${orgId}/projects`)}
-              style={{
-                marginTop: '8px',
-                padding: '6px 12px',
-                border: '1px solid #000',
-                backgroundColor: '#fff',
-                color: '#111',
-                cursor: 'pointer',
-                fontSize: '13px',
-              }}
-            >
-              View all projects
-            </button>
-          </div>
-
-          {/* Quick Actions */}
-          <div style={{ marginTop: '24px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <span style={{ fontSize: '14px', color: '#555', marginRight: '8px' }}>
-              Quick Actions:
-            </span>
-            <button
-              type="button"
-              onClick={() => router.push(`/org/${orgId}/my-tasks`)}
-              style={{
-                padding: '6px 12px',
-                border: '1px solid #000',
-                backgroundColor: '#fff',
-                color: '#111',
-                cursor: 'pointer',
-                fontSize: '13px',
-              }}
-            >
-              My Tasks
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/org/${orgId}/tasks`)}
-              style={{
-                padding: '6px 12px',
-                border: '1px solid #000',
-                backgroundColor: '#fff',
-                color: '#111',
-                cursor: 'pointer',
-                fontSize: '13px',
-              }}
-            >
-              Tasks
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/org/${orgId}/projects`)}
-              style={{
-                padding: '6px 12px',
-                border: '1px solid #000',
-                backgroundColor: '#fff',
-                color: '#111',
-                cursor: 'pointer',
-                fontSize: '13px',
-              }}
-            >
-              Projects
-            </button>
-          </div>
-        </>
-      )}
-
-      {activeTask && (
-        <TaskDrawer
-          orgId={orgId}
-          task={{
-            ...activeTask,
-            projectName: activeTask.projectName ?? '',
-            sectionName: activeTask.sectionName ?? '',
-          } as HomeTask}
-          parentTaskTitle={
-            taskStackRef.current.length > 0
-              ? taskStackRef.current[0].title
-              : undefined
-          }
-          onClose={() => {
-            taskStackRef.current = [];
-            setActiveTask(null);
-          }}
-          onUpdated={async () => {
-            const data = await apiFetch('/tasks/my', { headers: { 'x-org-id': orgId } });
-            setMyTasks((data as HomeTask[]) ?? []);
-          }}
-          onDeleted={async () => {
-            const data = await apiFetch('/tasks/my', { headers: { 'x-org-id': orgId } });
-            setMyTasks((data as HomeTask[]) ?? []);
-            setActiveTask(null);
-          }}
-          onOpenTask={(t: TaskDrawerTask) => {
-            taskStackRef.current = [activeTask!, ...taskStackRef.current];
-            setActiveTask({
-              ...t,
-              projectName: (t as HomeTask).projectName ?? '',
-              sectionName: (t as HomeTask).sectionName ?? '',
-            } as HomeTask);
-          }}
-          onBackToParent={() => {
-            const prev = taskStackRef.current.shift();
-            if (prev) setActiveTask(prev);
-          }}
-        />
-      )}
-    </div>
+            onUpdated={async (updated: TaskDrawerTask) => {
+              const data = await apiFetch('/tasks/my', { headers: { 'x-org-id': orgId } });
+              setMyTasks((data as HomeTask[]) ?? []);
+              setActiveTask((prev) =>
+                prev && prev.id === updated.id
+                  ? { ...prev, ...updated, projectName: prev.projectName, sectionName: (updated as any).section?.name ?? prev.sectionName } as HomeTask
+                  : prev,
+              );
+            }}
+            onDeleted={async () => {
+              const data = await apiFetch('/tasks/my', { headers: { 'x-org-id': orgId } });
+              setMyTasks((data as HomeTask[]) ?? []);
+              setActiveTask(null);
+            }}
+            onOpenTask={(t: TaskDrawerTask) => {
+              taskStackRef.current = [activeTask!, ...taskStackRef.current];
+              setActiveTask({
+                ...t,
+                projectName: (t as HomeTask).projectName ?? '',
+                sectionName: (t as HomeTask).sectionName ?? '',
+              } as HomeTask);
+            }}
+            onBackToParent={() => {
+              const prev = taskStackRef.current.shift();
+              if (prev) setActiveTask(prev);
+            }}
+          />
+        )}
+      </div>
   );
 }

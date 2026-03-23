@@ -2,30 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '@/lib/api';
+import {
+  Bell,
+  ClipboardList,
+  Grid2X2,
+  LayoutDashboard,
+  Settings,
+  Users,
+} from 'lucide-react';
 
-const linkStyle = (active: boolean): React.CSSProperties => ({
-  display: 'block',
-  width: '100%',
-  textAlign: 'left',
-  padding: '10px 14px',
-  marginBottom: '4px',
-  border: '1px solid #000',
-  backgroundColor: active ? '#000' : '#fff',
-  color: active ? '#fff' : '#000',
-  cursor: 'pointer',
-  fontSize: '14px',
-  textDecoration: 'none',
-  fontFamily: 'inherit',
-});
+interface OrgSidebarProps {
+  onOpenNotifications?: () => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}
 
-export function OrgSidebar() {
+export function OrgSidebar({
+  onOpenNotifications,
+  isMobileOpen = false,
+  onCloseMobile,
+}: OrgSidebarProps) {
   const params = useParams();
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const orgId = params?.orgId as string | undefined;
 
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
@@ -73,132 +75,137 @@ export function OrgSidebar() {
   const isActive = (path: string) =>
     pathname === path || (path !== base && pathname?.startsWith(path + '/'));
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
-  };
+  const mainMenuItems = [
+    { label: 'Dashboard', href: `${base}/home`, icon: LayoutDashboard },
+    { label: 'My Tasks', href: `${base}/my-tasks`, icon: ClipboardList },
+    { label: 'Tasks', href: `${base}/tasks`, icon: Grid2X2 },
+    { label: 'Projects', href: `${base}/projects`, icon: LayoutDashboard },
+    { label: 'Members', href: `${base}/members`, icon: Users },
+    {
+      label:
+        unreadCount && unreadCount > 0
+          ? `Notifications (${unreadCount})`
+          : 'Notifications',
+      href: `${base}/notifications`,
+      icon: Bell,
+    },
+    { label: 'Settings', href: `${base}/settings`, icon: Settings },
+  ];
+
+  const userInitials = (() => {
+    if (!user) return '?';
+    const source =
+      user.displayName ||
+      [user.firstName, user.lastName].filter(Boolean).join(' ') ||
+      user.email ||
+      '';
+    const initials = source
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((p) => p[0]?.toUpperCase() || '')
+      .slice(0, 2)
+      .join('');
+    return initials || '?';
+  })();
 
   return (
-    <aside
-      style={{
-        width: '200px',
-        flexShrink: 0,
-        minHeight: '100vh',
-        padding: '24px 16px',
-        borderRight: '1px solid #eee',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {user && (
-        <div style={{ marginBottom: '16px' }}>
-          <div
-            style={{
-              fontSize: '16px',
-              fontWeight: 600,
-              marginBottom: '8px',
-              color: '#000',
-            }}
-          >
-            {/* Organization name placeholder; can be replaced with real org name */}
-            Growzillas
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div
-              style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                border: '1px solid #000',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 600,
-              }}
-            >
-              {(() => {
-                const source =
-                  user.displayName ||
-                  [user.firstName, user.lastName].filter(Boolean).join(' ') ||
-                  user.email ||
-                  '';
-                const initials = source
-                  .split(/\s+/)
-                  .filter(Boolean)
-                  .map((p) => p[0]?.toUpperCase() || '')
-                  .slice(0, 2)
-                  .join('');
-                return initials || '?';
-              })()}
-            </div>
-            <div>
-              <div
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#000',
-                }}
+    <>
+      <div
+        className={`fixed inset-0 z-30 bg-black/30 transition-opacity lg:hidden ${
+          isMobileOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={onCloseMobile}
+        aria-hidden={!isMobileOpen}
+      />
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-shrink-0 flex-col border-r border-slate-200 bg-white px-5 py-6 transition-transform lg:static lg:z-auto lg:min-h-screen lg:translate-x-0 ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+      {/* Brand row */}
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 text-xs font-semibold text-white shadow-sm">
+          G
+        </div>
+        <span className="text-sm font-semibold text-slate-900">Growzillas</span>
+      </div>
+
+      {/* Main menu */}
+      <div>
+        <p className="mb-3 text-[11px] font-semibold tracking-[0.16em] text-slate-400">
+          MAIN MENU
+        </p>
+        <nav className="space-y-1">
+          {mainMenuItems.map((item) => {
+            const active = isActive(item.href);
+            const Icon = item.icon;
+            const isNotificationsItem = item.label.startsWith('Notifications');
+
+            if (isNotificationsItem && onOpenNotifications) {
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() => {
+                    onOpenNotifications?.();
+                    onCloseMobile?.();
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                    active
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <span
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-[13px] ${
+                      active
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-400'
+                    }`}
+                    aria-hidden
+                  >
+                    <Icon size={16} strokeWidth={2} />
+                  </span>
+                  <span>{item.label}</span>
+                </button>
+              );
+            }
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onCloseMobile}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                  active
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
               >
-                {user.displayName ||
-                  [user.firstName, user.lastName].filter(Boolean).join(' ') ||
-                  user.email}
-              </div>
-              <div
-                style={{
-                  fontSize: '11px',
-                  color: '#555',
-                }}
-              >
-                {user.email}
-              </div>
-            </div>
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[13px] ${
+                    active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-400'
+                  }`}
+                  aria-hidden
+                >
+                  <Icon size={16} strokeWidth={2} />
+                </span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Bottom area */}
+      <div className="mt-auto flex items-center justify-between pt-6">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+            {userInitials}
           </div>
         </div>
-      )}
-
-      <nav style={{ display: 'flex', flexDirection: 'column' }}>
-        <Link href={`${base}/home`} style={linkStyle(isActive(`${base}/home`))}>
-          Home
-        </Link>
-        <Link href={`${base}/my-tasks`} style={linkStyle(isActive(`${base}/my-tasks`))}>
-          My Tasks
-        </Link>
-        <Link href={`${base}/tasks`} style={linkStyle(isActive(`${base}/tasks`))}>
-          Tasks
-        </Link>
-        <Link href={`${base}/projects`} style={linkStyle(isActive(`${base}/projects`))}>
-          Projects
-        </Link>
-        <Link href={`${base}/members`} style={linkStyle(isActive(`${base}/members`))}>
-          Members
-        </Link>
-        <Link href={`${base}/notifications`} style={linkStyle(isActive(`${base}/notifications`))}>
-          {`Notifications${
-            unreadCount && unreadCount > 0 ? ` (${unreadCount})` : ''
-          }`}
-        </Link>
-      </nav>
-      <button
-        type="button"
-        onClick={handleLogout}
-        style={{
-          display: 'block',
-          width: '100%',
-          textAlign: 'left',
-          padding: '10px 14px',
-          marginTop: 'auto',
-          marginBottom: '4px',
-          border: '1px solid #000',
-          backgroundColor: '#000',
-          color: '#fff',
-          cursor: 'pointer',
-          fontSize: '14px',
-          fontFamily: 'inherit',
-        }}
-      >
-        Logout
-      </button>
-    </aside>
+      </div>
+      </aside>
+    </>
   );
 }

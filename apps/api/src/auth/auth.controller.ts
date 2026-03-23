@@ -1,4 +1,16 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseGuards,
+  Request,
+  Param,
+  Res,
+  Patch,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -11,6 +23,9 @@ import { SkipTenancy } from './decorators/skip-tenancy.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { RequestUser } from './jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { join, extname } from 'path';
+import * as fs from 'fs';
 
 /**
  * Authentication Controller
@@ -100,14 +115,11 @@ export class AuthController {
     // orgId/role may be empty when the user has no org membership yet.
     const hasOrg = !!req.user.orgId;
 
-    const dbUser = await this.prisma.user.findUnique({
+    // Cast to any so this stays compatible even if Prisma types
+    // haven’t been regenerated yet for new fields like bio/avatarUrl.
+    const dbUser = (await this.prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: {
-        displayName: true,
-        firstName: true,
-        lastName: true,
-      },
-    });
+    } as any)) as any;
 
     const nameFromParts =
       [dbUser?.firstName, dbUser?.lastName].filter(Boolean).join(' ') || null;
@@ -120,10 +132,142 @@ export class AuthController {
       displayName,
       firstName: dbUser?.firstName ?? null,
       lastName: dbUser?.lastName ?? null,
+      bio: (dbUser as any)?.bio ?? null,
+      avatarUrl: (dbUser as any)?.avatarUrl ?? null,
       orgId: req.user.orgId, // From membership lookup (may be empty)
       role: hasOrg ? req.user.role : null, // Null when no membership
       member: hasOrg,
     };
+  }
+
+  /**
+   * PATCH /auth/me
+   * Update basic profile fields for the current user.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  async updateProfile(
+    @Request() req: { user: RequestUser },
+    @Body()
+    body: {
+      firstName?: string | null;
+      lastName?: string | null;
+      bio?: string | null;
+    },
+  ) {
+    const userId = req.user.userId;
+
+    const data: any = {};
+    if (body.firstName !== undefined) {
+      data.firstName = body.firstName?.trim() || null;
+    }
+    if (body.lastName !== undefined) {
+      data.lastName = body.lastName?.trim() || null;
+    }
+    if (body.bio !== undefined) {
+      data.bio = body.bio?.trim() || null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return this.getProfile({ user: req.user } as any);
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+
+    return this.getProfile({ user: req.user } as any);
+  }
+
+  /**
+   * POST /auth/me/change-password
+   * Change password for the current user (requires current password).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('me/change-password')
+  async changePassword(
+    @Request() req: { user: RequestUser },
+    @Body()
+    body: {
+      currentPassword: string;
+      newPassword: string;
+    },
+  ) {
+    const { currentPassword, newPassword } = body;
+    await this.authService.changePassword(req.user.userId, currentPassword, newPassword);
+    return { success: true };
+  }
+
+  /**
+   * POST /auth/me/avatar
+   * Upload or replace the current user's avatar image.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(
+    @Request() req: { user: RequestUser },
+    @UploadedFile() file: any,
+  ) {
+    const userId = req.user.userId;
+
+    if (!file || !file.buffer) {
+      return { success: false, message: 'File is required' };
+    }
+
+    const uploadsRoot = join(process.cwd(), 'uploads', 'avatars');
+    fs.mkdirSync(uploadsRoot, { recursive: true });
+
+    const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const targetFileName = `${unique}${extname(file.originalname)}`;
+    const targetPath = join(uploadsRoot, targetFileName);
+
+    fs.writeFileSync(targetPath, file.buffer);
+
+    const fileUrl = `/uploads/avatars/${targetFileName}`;
+
+    const updated = (await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: fileUrl } as any,
+    } as any)) as any;
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName ?? null,
+      lastName: updated.lastName ?? null,
+      bio: (updated as any).bio ?? null,
+      avatarUrl: (updated as any).avatarUrl ?? null,
+    };
+  }
+
+  /**
+   * DELETE /auth/me/avatar
+   * Remove the current user's avatar image.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('me/avatar/delete')
+  async deleteAvatar(@Request() req: { user: RequestUser }) {
+    const userId = req.user.userId;
+
+    const user = (await this.prisma.user.findUnique({
+      where: { id: userId },
+    } as any)) as any;
+
+    if ((user as any)?.avatarUrl && (user as any).avatarUrl.startsWith('/uploads/avatars/')) {
+      const path = join(process.cwd(), (user as any).avatarUrl);
+      if (fs.existsSync(path)) {
+        fs.unlinkSync(path);
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: null } as any,
+    } as any);
+
+    return { success: true };
   }
 
   /**

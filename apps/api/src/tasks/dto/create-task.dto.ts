@@ -1,7 +1,8 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateTaskDto {
   @IsString()
+  @IsNotEmpty()
   projectId: string;
 
   @IsString()
@@ -24,5 +25,9 @@ export class CreateTaskDto {
 
   @IsOptional()
   assigneeId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  priority?: string;
 }
 

@@ -17,6 +17,8 @@ interface User {
   displayName?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+   bio?: string | null;
+   avatarUrl?: string | null;
   orgId?: string;
   role?: string;
 }

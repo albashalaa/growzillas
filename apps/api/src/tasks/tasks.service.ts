@@ -30,6 +30,12 @@ export class TasksService {
         orgId,
       },
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         section: {
           select: {
             id: true,
@@ -43,6 +49,7 @@ export class TasksService {
                 id: true,
                 email: true,
                 displayName: true,
+                avatarUrl: true,
               },
             },
           },
@@ -60,6 +67,8 @@ export class TasksService {
       description: task.description,
       dueDate: task.dueDate,
       projectId: task.projectId,
+      project: task.project,
+      projectName: task.project?.name ?? null,
       parentId: task.parentId,
       sectionId: task.sectionId,
       section: task.section,
@@ -82,6 +91,12 @@ export class TasksService {
         { createdAt: 'asc' },
       ],
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         section: {
           select: {
             id: true,
@@ -95,6 +110,7 @@ export class TasksService {
                 id: true,
                 email: true,
                 displayName: true,
+                avatarUrl: true,
               },
             },
           },
@@ -106,8 +122,11 @@ export class TasksService {
       id: task.id,
       title: task.title,
       description: task.description,
+      priority: task.priority,
       dueDate: task.dueDate,
       projectId: task.projectId,
+      project: task.project,
+      projectName: task.project?.name ?? null,
       parentId: task.parentId,
       section: task.section,
       assignees: task.memberships.map((m) => m.user),
@@ -125,15 +144,20 @@ export class TasksService {
       sectionId?: string;
       assigneeUserId?: string;
       assigneeId?: string | null;
+      priority?: string;
     },
     user: RequestUser,
   ) {
     const orgId = this.getOrgId(user);
+    const normalizedProjectId = input.projectId?.trim();
+    if (!normalizedProjectId) {
+      throw new BadRequestException('Project is required');
+    }
 
     // Org-scoped: project must belong to current org
     const project = await this.prisma.project.findFirst({
       where: {
-        id: input.projectId,
+        id: normalizedProjectId,
         orgId,
       },
       select: {
@@ -198,11 +222,12 @@ export class TasksService {
         sectionId,
         title: input.title,
         description: input.description,
+        priority: input.priority || 'MEDIUM',
         dueDate,
       },
     });
 
-    await (this.prisma as any).story.create({
+    const createdStory = await (this.prisma as any).story.create({
       data: {
         orgId,
         taskId: task.id,
@@ -215,8 +240,7 @@ export class TasksService {
       },
     });
 
-    const assigneeId =
-      input.assigneeUserId ?? input.assigneeId ?? undefined;
+    const assigneeId = input.assigneeUserId ?? input.assigneeId ?? undefined;
     if (assigneeId) {
       const member = await this.prisma.orgMember.findFirst({
         where: {
@@ -241,6 +265,39 @@ export class TasksService {
           userId: assigneeId,
         },
       });
+
+      // Notify the new assignee (personal) + due-soon if applicable.
+      const now = Date.now();
+      const dueSoonWindowMs = 48 * 60 * 60 * 1000;
+      const dueTime =
+        dueDate instanceof Date ? dueDate.getTime() : undefined;
+      const isDueSoon =
+        typeof dueTime === 'number' && dueTime >= now && dueTime <= now + dueSoonWindowMs;
+
+      const recipients = [assigneeId].filter((id) => id !== user.userId);
+      if (recipients.length > 0) {
+        await this.prisma.notification.createMany({
+          data: [
+            ...recipients.map((userId) => ({
+              orgId,
+              userId,
+              storyId: createdStory.id,
+              taskId: task.id,
+              type: NotificationTypes.TASK_ASSIGNED,
+            })),
+            ...(isDueSoon
+              ? recipients.map((userId) => ({
+                  orgId,
+                  userId,
+                  storyId: createdStory.id,
+                  taskId: task.id,
+                  type: NotificationTypes.TASK_DUE_SOON,
+                }))
+              : []),
+          ],
+          skipDuplicates: true,
+        });
+      }
     }
 
     return task;
@@ -250,9 +307,11 @@ export class TasksService {
     id: string,
     input: {
       title?: string;
+      description?: string;
       dueDate?: string | null;
       sectionId?: string;
       assigneeUserId?: string;
+      priority?: string;
     },
     user: RequestUser,
   ) {
@@ -266,9 +325,11 @@ export class TasksService {
       select: {
         id: true,
         projectId: true,
+        parentId: true,
         title: true,
         dueDate: true,
         sectionId: true,
+        priority: true,
       },
     });
 
@@ -278,12 +339,22 @@ export class TasksService {
 
     const data: {
       title?: string;
+      description?: string;
       dueDate?: Date | null;
       sectionId?: string;
+      priority?: string;
     } = {};
 
     if (typeof input.title === 'string') {
       data.title = input.title;
+    }
+
+    if (typeof input.description === 'string') {
+      data.description = input.description;
+    }
+
+    if (input.priority !== undefined) {
+      data.priority = input.priority || 'MEDIUM';
     }
 
     if (input.dueDate !== undefined) {
@@ -343,8 +414,9 @@ export class TasksService {
       existing.dueDate instanceof Date ? existing.dueDate.toISOString() : null;
     const newDue =
       updated.dueDate instanceof Date ? updated.dueDate.toISOString() : null;
+    let dueDateStoryId: string | null = null;
     if (oldDue !== newDue) {
-      await (this.prisma as any).story.create({
+      const dueStory = await (this.prisma as any).story.create({
         data: {
           orgId,
           taskId: existing.id,
@@ -357,6 +429,7 @@ export class TasksService {
           },
         },
       });
+      dueDateStoryId = dueStory.id;
     }
 
     const oldSectionId = existing.sectionId;
@@ -436,7 +509,7 @@ export class TasksService {
         beforeIds.some((id, idx) => id !== afterIds[idx]);
 
       if (changed) {
-        await (this.prisma as any).story.create({
+        const assigneeStory = await (this.prisma as any).story.create({
           data: {
             orgId,
             taskId: existing.id,
@@ -449,10 +522,134 @@ export class TasksService {
             },
           },
         });
+
+        const assigneeStoryId: string | undefined =
+          (assigneeStory as any)?.id;
+
+        if (assigneeStoryId) {
+          // Notify newly added assignees only (personal only).
+          const newAssigneeIds = afterIds.filter(
+            (id) => !beforeIds.includes(id),
+          );
+          const recipients = newAssigneeIds.filter(
+            (id) => id && id !== user.userId,
+          );
+
+          if (recipients.length > 0) {
+            const notificationType = existing.parentId
+              ? NotificationTypes.SUBTASK_ASSIGNED
+              : NotificationTypes.TASK_ASSIGNED;
+
+            await this.prisma.notification.createMany({
+              data: recipients.map((userId) => ({
+                orgId,
+                userId,
+                storyId: assigneeStoryId,
+                taskId: existing.id,
+                type: notificationType,
+              })),
+              skipDuplicates: true,
+            });
+          }
+
+          // Also notify due-soon for newly added assignees (if due date is within window).
+          const dueSoonWindowMs = 48 * 60 * 60 * 1000;
+          const dueTime =
+            updated.dueDate instanceof Date
+              ? updated.dueDate.getTime()
+              : undefined;
+          const isDueSoon =
+            typeof dueTime === 'number' &&
+            dueTime >= Date.now() &&
+            dueTime <= Date.now() + dueSoonWindowMs;
+
+          if (recipients.length > 0 && isDueSoon) {
+            await this.prisma.notification.createMany({
+              data: recipients.map((userId) => ({
+                orgId,
+                userId,
+                storyId: assigneeStoryId,
+                taskId: existing.id,
+                type: NotificationTypes.TASK_DUE_SOON,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        }
       }
     }
 
-    return updated;
+    // Personal due-soon notifications when the due date changes.
+    if (dueDateStoryId) {
+      const dueSoonWindowMs = 48 * 60 * 60 * 1000;
+      const dueTime =
+        updated.dueDate instanceof Date
+          ? updated.dueDate.getTime()
+          : undefined;
+      const isDueSoon =
+        typeof dueTime === 'number' &&
+        dueTime >= Date.now() &&
+        dueTime <= Date.now() + dueSoonWindowMs;
+
+      if (isDueSoon) {
+        const memberships = await this.prisma.taskMembership.findMany({
+          where: { orgId, taskId: existing.id },
+          select: { userId: true },
+        });
+
+        const recipients = memberships
+          .map((m) => m.userId)
+          .filter((id) => id !== user.userId);
+
+        if (recipients.length > 0) {
+          await this.prisma.notification.createMany({
+            data: recipients.map((userId) => ({
+              orgId,
+              userId,
+              storyId: dueDateStoryId,
+              taskId: existing.id,
+              type: NotificationTypes.TASK_DUE_SOON,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+    }
+
+    const full = await this.prisma.task.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        section: { select: { id: true, name: true } },
+        memberships: {
+          include: {
+            user: { select: { id: true, email: true, displayName: true, avatarUrl: true } },
+          },
+        },
+      },
+    });
+
+    return {
+      id: full.id,
+      title: full.title,
+      description: full.description,
+      priority: full.priority,
+      dueDate: full.dueDate,
+      projectId: full.projectId,
+      project: full.project,
+      projectName: full.project?.name ?? null,
+      parentId: full.parentId,
+      sectionId: full.sectionId,
+      section: full.section,
+      assignees: full.memberships.map((m) => m.user),
+      createdAt: full.createdAt,
+      updatedAt: full.updatedAt,
+    };
   }
 
   async deleteTask(id: string, user: RequestUser) {
@@ -497,6 +694,8 @@ export class TasksService {
       },
       select: {
         id: true,
+        parentId: true,
+        dueDate: true,
       },
     });
 
@@ -535,6 +734,62 @@ export class TasksService {
           userId,
         },
       });
+
+      // Notify newly added assignee (personal only).
+      const assigneeStory = await (this.prisma as any).story.create({
+        data: {
+          orgId,
+          taskId: task.id,
+          createdById: user.userId,
+          type: 'ACTIVITY',
+          metadata: {
+            action: 'TASK_ASSIGNEE_CHANGED',
+            toUserIds: [userId],
+          },
+        },
+      });
+
+      const assigneeStoryId: string | undefined =
+        (assigneeStory as any)?.id;
+
+      const recipients = [userId].filter((id) => id !== user.userId);
+      if (assigneeStoryId && recipients.length > 0) {
+        await this.prisma.notification.createMany({
+          data: recipients.map((recipientId) => ({
+            orgId,
+            userId: recipientId,
+            storyId: assigneeStoryId,
+            taskId: task.id,
+            type: task.parentId
+              ? NotificationTypes.SUBTASK_ASSIGNED
+              : NotificationTypes.TASK_ASSIGNED,
+          })),
+          skipDuplicates: true,
+        });
+
+        // MVP due-soon (48h window) based on current dueDate.
+        const now = Date.now();
+        const dueSoonWindowMs = 48 * 60 * 60 * 1000;
+        const dueTime =
+          task.dueDate instanceof Date ? task.dueDate.getTime() : undefined;
+        const isDueSoon =
+          typeof dueTime === 'number' &&
+          dueTime >= now &&
+          dueTime <= now + dueSoonWindowMs;
+
+        if (isDueSoon) {
+          await this.prisma.notification.createMany({
+            data: recipients.map((recipientId) => ({
+              orgId,
+              userId: recipientId,
+              storyId: assigneeStoryId,
+              taskId: task.id,
+              type: NotificationTypes.TASK_DUE_SOON,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
     }
 
     return { success: true };
@@ -569,6 +824,7 @@ export class TasksService {
             id: true,
             email: true,
             displayName: true,
+            avatarUrl: true,
           },
         },
       },
@@ -640,6 +896,7 @@ export class TasksService {
             id: true,
             email: true,
             displayName: true,
+            avatarUrl: true,
           },
         },
       },
@@ -667,6 +924,30 @@ export class TasksService {
           skipDuplicates: true,
         });
       }
+    }
+
+    // Notify assignees that someone commented on a task (personal only).
+    // Exclude the actor to avoid self-notifications.
+    const assignees = await this.prisma.taskMembership.findMany({
+      where: { orgId, taskId: task.id },
+      select: { userId: true },
+    });
+
+    const commentRecipients = assignees
+      .map((m) => m.userId)
+      .filter((id) => id && id !== user.userId);
+
+    if (commentRecipients.length > 0) {
+      await this.prisma.notification.createMany({
+        data: commentRecipients.map((userId) => ({
+          orgId,
+          userId,
+          storyId: story.id,
+          taskId: task.id,
+          type: NotificationTypes.TASK_COMMENTED,
+        })),
+        skipDuplicates: true,
+      });
     }
 
     return story;
@@ -717,6 +998,7 @@ export class TasksService {
             id: true,
             email: true,
             displayName: true,
+            avatarUrl: true,
           },
         },
       },
@@ -788,6 +1070,12 @@ export class TasksService {
         createdAt: 'asc',
       },
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         section: {
           select: {
             id: true,
@@ -801,6 +1089,7 @@ export class TasksService {
                 id: true,
                 email: true,
                 displayName: true,
+                avatarUrl: true,
               },
             },
           },
@@ -811,8 +1100,11 @@ export class TasksService {
     return subtasks.map((task) => ({
       id: task.id,
       title: task.title,
+      priority: task.priority,
       dueDate: task.dueDate,
       projectId: task.projectId,
+      project: task.project,
+      projectName: task.project?.name ?? null,
       parentId: task.parentId,
       sectionId: task.sectionId,
       section: task.section,
@@ -829,6 +1121,7 @@ export class TasksService {
       dueDate?: string | null;
       assigneeUserId?: string | null;
       sectionId?: string | null;
+      priority?: string | null;
     },
     user: RequestUser,
   ) {
@@ -881,11 +1174,12 @@ export class TasksService {
         sectionId,
         parentId: parent.id,
         title: input.title,
+        priority: input.priority || 'MEDIUM',
         dueDate,
       },
     });
 
-    await (this.prisma as any).story.create({
+    const createdStory = await (this.prisma as any).story.create({
       data: {
         orgId,
         taskId: subtask.id,
@@ -924,9 +1218,70 @@ export class TasksService {
           userId: assigneeId,
         },
       });
+
+      // Notify assignee (personal) + due-soon if applicable.
+      const now = Date.now();
+      const dueSoonWindowMs = 48 * 60 * 60 * 1000;
+      const dueTime =
+        dueDate instanceof Date ? dueDate.getTime() : undefined;
+      const isDueSoon =
+        typeof dueTime === 'number' && dueTime >= now && dueTime <= now + dueSoonWindowMs;
+
+      const recipients = [assigneeId].filter((id) => id !== user.userId);
+      if (recipients.length > 0) {
+        await this.prisma.notification.createMany({
+          data: [
+            ...recipients.map((userId) => ({
+              orgId,
+              userId,
+              storyId: createdStory.id,
+              taskId: subtask.id,
+              type: NotificationTypes.SUBTASK_ASSIGNED,
+            })),
+            ...(isDueSoon
+              ? recipients.map((userId) => ({
+                  orgId,
+                  userId,
+                  storyId: createdStory.id,
+                  taskId: subtask.id,
+                  type: NotificationTypes.TASK_DUE_SOON,
+                }))
+              : []),
+          ],
+          skipDuplicates: true,
+        });
+      }
     }
 
-    return subtask;
+    const full = await this.prisma.task.findUniqueOrThrow({
+      where: { id: subtask.id },
+      include: {
+        project: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+        memberships: {
+          include: {
+            user: { select: { id: true, email: true, displayName: true, avatarUrl: true } },
+          },
+        },
+      },
+    });
+
+    return {
+      id: full.id,
+      title: full.title,
+      description: full.description,
+      priority: full.priority,
+      dueDate: full.dueDate,
+      projectId: full.projectId,
+      project: full.project,
+      projectName: full.project?.name ?? null,
+      parentId: full.parentId,
+      sectionId: full.sectionId,
+      section: full.section,
+      assignees: full.memberships.map((m) => m.user),
+      createdAt: full.createdAt,
+      updatedAt: full.updatedAt,
+    };
   }
 
   async listMyTasks(user: RequestUser) {
@@ -942,12 +1297,14 @@ export class TasksService {
           select: {
             id: true,
             title: true,
+            priority: true,
             dueDate: true,
             projectId: true,
             sectionId: true,
             parentId: true,
             project: {
               select: {
+                id: true,
                 name: true,
               },
             },
@@ -963,6 +1320,7 @@ export class TasksService {
                     id: true,
                     email: true,
                     displayName: true,
+                    avatarUrl: true,
                   },
                 },
               },
@@ -978,10 +1336,12 @@ export class TasksService {
     return memberships.map((m) => ({
       id: m.task.id,
       title: m.task.title,
+      priority: m.task.priority,
       dueDate: m.task.dueDate,
       projectId: m.task.projectId,
+      project: m.task.project,
       sectionId: m.task.sectionId,
-       parentId: m.task.parentId,
+      parentId: m.task.parentId,
       projectName: m.task.project?.name ?? '',
       sectionName: m.task.section?.name ?? '',
       assignees: m.task.memberships.map((mm) => mm.user),

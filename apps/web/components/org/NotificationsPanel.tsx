@@ -1,19 +1,63 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import type { NotificationItem } from '@/lib/notifications';
+import {
+  Bell,
+  CheckCircle2,
+  Clock3,
+  MessageCircle,
+  MessageSquare,
+  UserPlus,
+} from 'lucide-react';
 
-export default function OrgNotificationsPage() {
-  const params = useParams();
+interface NotificationsPanelProps {
+  orgId: string;
+  onClose: () => void;
+}
+
+export function NotificationsPanel({ orgId, onClose }: NotificationsPanelProps) {
   const router = useRouter();
-  const orgId = params.orgId as string;
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  const getNotificationIcon = (type: string) => {
+    const normalized = (type ?? '').toUpperCase();
+
+    // Backend currently emits COMMENT_MENTION, TASK_ASSIGNED, SUBTASK_ASSIGNED.
+    // Still handle the broader UI-requested set safely for any unknown types.
+    if (normalized.includes('MENTION')) return MessageSquare;
+    if (normalized === 'TASK_ASSIGNED' || normalized === 'SUBTASK_ASSIGNED')
+      return CheckCircle2;
+    if (normalized.includes('COMMENT')) return MessageCircle;
+    if (normalized.includes('DUE_SOON') || normalized.includes('DUE'))
+      return Clock3;
+    if (normalized.includes('MEMBER') && normalized.includes('JOIN'))
+      return UserPlus;
+
+    // Meaningful fallback icon (no placeholder '!').
+    return Bell;
+  };
+
+  const getNotificationTitle = (n: NotificationItem) => {
+    const actor = (n.actorDisplayName && n.actorDisplayName.trim()) || 'Someone';
+    const task = n.taskTitle || 'a task';
+    const type = (n.type ?? '').toUpperCase();
+
+    if (type === 'COMMENT_MENTION') return `${actor} mentioned you in ${task}`;
+    if (type === 'TASK_ASSIGNED') return `${actor} assigned you to ${task}`;
+    if (type === 'SUBTASK_ASSIGNED') return `${actor} assigned you to ${task}`;
+    if (type === 'TASK_COMMENTED') return `${actor} commented on ${task}`;
+    if (type === 'TASK_DUE_SOON') return `${task} is due soon`;
+
+    return `${actor} updated ${task}`;
+  };
 
   const loadNotifications = async () => {
     try {
@@ -36,7 +80,6 @@ export default function OrgNotificationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
-  // Refresh notifications when the window regains focus (e.g. after new mentions)
   useEffect(() => {
     const handleFocus = () => {
       void loadNotifications();
@@ -46,6 +89,30 @@ export default function OrgNotificationsPage() {
       window.removeEventListener('focus', handleFocus);
     };
   }, [orgId]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      if (!panel.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
 
   const handleOpenNotification = async (n: NotificationItem) => {
     if (!n.taskId) return;
@@ -69,6 +136,7 @@ export default function OrgNotificationsPage() {
     }
 
     router.push(`/org/${orgId}/tasks?taskId=${n.taskId}`);
+    onClose();
   };
 
   const handleMarkAllRead = async () => {
@@ -91,8 +159,11 @@ export default function OrgNotificationsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="flex h-[calc(100vh-5.5rem)] w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.20)] sm:h-[calc(100vh-8rem)]">
+    <div className="fixed inset-y-0 left-0 z-[9990] flex w-full pointer-events-none lg:left-64 lg:w-auto">
+      <div
+        ref={panelRef}
+        className="pointer-events-auto flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.20)]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
@@ -126,7 +197,7 @@ export default function OrgNotificationsPage() {
           </div>
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={onClose}
             className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             aria-label="Close notifications"
           >
@@ -196,7 +267,10 @@ export default function OrgNotificationsPage() {
                           : 'bg-sky-100 text-sky-600'
                       }`}
                     >
-                      <span>!</span>
+                      {(() => {
+                        const Icon = getNotificationIcon(n.type);
+                        return <Icon size={16} />;
+                      })()}
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -208,9 +282,7 @@ export default function OrgNotificationsPage() {
                               : 'font-semibold text-slate-900'
                           }`}
                         >
-                          {(n.actorDisplayName && n.actorDisplayName.trim()) ||
-                            'Someone'}{' '}
-                          mentioned you in {n.taskTitle || 'a task'}
+                          {getNotificationTitle(n)}
                         </p>
                         <span className="whitespace-nowrap text-[11px] text-slate-400">
                           {new Date(n.createdAt).toLocaleTimeString(undefined, {
@@ -233,7 +305,6 @@ export default function OrgNotificationsPage() {
             </ul>
           )}
         </div>
-
       </div>
     </div>
   );

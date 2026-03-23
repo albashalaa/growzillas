@@ -30,7 +30,7 @@ export class ProjectsController {
     @Body() dto: CreateProjectDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.projectsService.createProject(dto.name, dto.description, user);
+    return this.projectsService.createProject(dto, user);
   }
 
   @Get(':id')

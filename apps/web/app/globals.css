@@ -3,47 +3,455 @@
 :root {
   --background: #ffffff;
   --foreground: #111111;
+  --theme-surface-0: #ffffff;
+  --theme-surface-1: #f9fafb;
+  --theme-surface-2: #f3f4f6;
+  --theme-surface-3: #e5e7eb;
+  --theme-surface-4: #d1d5db;
+  --theme-border: #e5e7eb;
+  --theme-border-strong: #d1d5db;
+  --theme-text-primary: #111827;
+  --theme-text-secondary: #6b7280;
+  --theme-text-muted: #9ca3af;
+  --theme-shadow-sm: 0 1px 0 rgba(15, 23, 42, 0.03);
+  --theme-shadow-lg: 0 18px 45px rgba(15, 23, 42, 0.06);
+  --theme-shadow-overlay: 0 18px 45px rgba(15, 23, 42, 0.2);
+  --theme-input-bg: #ffffff;
+  --theme-input-border: #e2e8f0;
+  --theme-input-placeholder: #94a3b8;
+  --theme-cta-bg: #000000;
+  --theme-cta-text: #ffffff;
+  --theme-ring: #e2e8f0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-montserrat);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Notion-style neutral dark theme (no blue tint) */
+html.dark {
+  --background: #191919;
+  --foreground: #e6e6e6;
+  --theme-surface-0: #202020;
+  --theme-surface-1: #1f1f1f;
+  --theme-surface-2: #262626;
+  --theme-surface-3: #333333;
+  --theme-surface-4: #404040;
+  --theme-border: #2f2f2f;
+  --theme-border-strong: #404040;
+  --theme-text-primary: #e6e6e6;
+  --theme-text-secondary: #a1a1a1;
+  --theme-text-muted: #737373;
+  --theme-shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.15);
+  --theme-shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.25);
+  --theme-shadow-overlay: 0 18px 45px rgba(0, 0, 0, 0.28);
+  --theme-input-bg: #262626;
+  --theme-input-border: #2f2f2f;
+  --theme-input-placeholder: #737373;
+  --theme-cta-bg: #2a2a2a;
+  --theme-cta-text: #e6e6e6;
+  --theme-ring: #2f2f2f;
+}
+
+/* Smooth background / text transition between themes */
+html,
+body {
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  overflow-x: hidden;
+}
+
+/* Global dark-mode: neutral grey overrides (no blue) */
+html.dark .bg-white {
+  background-color: var(--theme-surface-0) !important;
+}
+
+html.dark .bg-slate-50 {
+  background-color: var(--theme-surface-1) !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: var(--theme-surface-2) !important;
+}
+
+html.dark .text-slate-900 {
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark .text-slate-800 {
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark .text-slate-700 {
+  color: var(--theme-text-secondary) !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: var(--theme-text-secondary) !important;
+}
+
+html.dark .text-slate-400 {
+  color: var(--theme-text-muted) !important;
+}
+
+/* Ensure generic text/icon utility tones stay light in dark mode */
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700,
+html.dark .text-neutral-900,
+html.dark .text-neutral-800,
+html.dark .text-neutral-700,
+html.dark .text-zinc-900,
+html.dark .text-zinc-800,
+html.dark .text-zinc-700 {
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark .text-gray-600,
+html.dark .text-gray-500,
+html.dark .text-neutral-600,
+html.dark .text-neutral-500,
+html.dark .text-zinc-600,
+html.dark .text-zinc-500 {
+  color: var(--theme-text-secondary) !important;
+}
+
+html.dark .text-gray-400,
+html.dark .text-neutral-400,
+html.dark .text-zinc-400 {
+  color: var(--theme-text-muted) !important;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark .border-slate-400 {
+  border-color: var(--theme-border) !important;
+}
+
+/* Extra surfaces: cards, avatars, dividers (neutral grey) */
+html.dark .bg-slate-200 {
+  background-color: var(--theme-surface-3) !important;
+}
+
+html.dark .bg-slate-300,
+html.dark .bg-slate-400 {
+  background-color: var(--theme-surface-4) !important;
+}
+
+/* Primary/secondary buttons in dark: neutral dark grey (no blue) */
+html.dark .bg-slate-800 {
+  background-color: var(--theme-surface-3) !important;
+}
+
+html.dark .bg-slate-900 {
+  background-color: var(--theme-cta-bg) !important;
+}
+
+html.dark .hover\:bg-slate-800:hover {
+  background-color: var(--theme-surface-4) !important;
+}
+
+/* Sidebar, navbar, cards, panels */
+html.dark .border-r,
+html.dark .border-l {
+  border-color: var(--theme-border);
+}
+
+/* Shadows: neutral, no blue tint */
+html.dark .shadow-sm,
+html.dark .shadow-\[0_1px_0_rgba\(15\,23\,42\,0\.03\)\] {
+  box-shadow: var(--theme-shadow-sm);
+}
+
+html.dark .shadow-xl,
+html.dark .shadow-lg,
+html.dark .shadow-\[0_18px_45px_rgba\(15\,23\,42\,0\.06\)\],
+html.dark .shadow-\[0_18px_45px_rgba\(15\,23\,42\,0\.20\)\],
+html.dark .shadow-\[0_18px_45px_rgba\(15\,23\,42\,0\.12\)\],
+html.dark .shadow-\[0_18px_45px_rgba\(15\,23\,42\,0\.14\)\],
+html.dark .shadow-\[0_0_40px_rgba\(15\,23\,42\,0\.25\)\] {
+  box-shadow: var(--theme-shadow-lg);
+}
+
+html.dark .shadow-slate-200\/60,
+html.dark .shadow-slate-200\/50 {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+}
+
+/* Inputs and form controls in dark mode */
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark select,
+html.dark textarea {
+  background-color: var(--theme-input-bg) !important;
+  border-color: var(--theme-input-border) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: var(--theme-input-placeholder) !important;
+}
+
+/* Hover states: slightly lighter grey (no blue) */
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover {
+  background-color: var(--theme-cta-bg) !important;
+}
+
+/* Mixed opacity surfaces (e.g. bg-slate-50/70) */
+html.dark .bg-slate-50\/70 {
+  background-color: color-mix(in srgb, var(--theme-surface-2) 90%, transparent) !important;
+}
+
+/* Inline-style fallback pass for legacy screens using style={{...}} */
+html.dark [style*="background-color: rgb(255, 255, 255)"],
+html.dark [style*="background-color:#fff"],
+html.dark [style*="background-color: #fff"],
+html.dark [style*="background-color:#ffffff"],
+html.dark [style*="background-color: #ffffff"] {
+  background-color: var(--theme-surface-0) !important;
+}
+
+html.dark [style*="background-color: rgb(249, 250, 251)"],
+html.dark [style*="background-color:#f9fafb"],
+html.dark [style*="background-color: #f9fafb"] {
+  background-color: var(--theme-surface-1) !important;
+}
+
+html.dark [style*="background-color: rgb(243, 244, 246)"],
+html.dark [style*="background-color:#f3f4f6"],
+html.dark [style*="background-color: #f3f4f6"] {
+  background-color: var(--theme-surface-2) !important;
+}
+
+html.dark [style*="border-color: rgb(229, 231, 235)"],
+html.dark [style*="border-color:#e5e7eb"],
+html.dark [style*="border-color: #e5e7eb"],
+html.dark [style*="border: 1px solid rgb(229, 231, 235)"],
+html.dark [style*="border:1px solid #e5e7eb"],
+html.dark [style*="border: 1px solid #e5e7eb"] {
+  border-color: var(--theme-border) !important;
+}
+
+html.dark [style*="color: rgb(17, 24, 39)"],
+html.dark [style*="color:#111"],
+html.dark [style*="color: #111"],
+html.dark [style*="color:#111827"],
+html.dark [style*="color: #111827"] {
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark [style*="color:#000"],
+html.dark [style*="color: #000"] {
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark [style*="color: rgb(75, 85, 99)"],
+html.dark [style*="color:#4b5563"],
+html.dark [style*="color: #4b5563"],
+html.dark [style*="color: rgb(107, 114, 128)"],
+html.dark [style*="color:#6b7280"],
+html.dark [style*="color: #6b7280"] {
+  color: var(--theme-text-secondary) !important;
+}
+
+html.dark [style*="color: rgb(156, 163, 175)"],
+html.dark [style*="color:#9ca3af"],
+html.dark [style*="color: #9ca3af"] {
+  color: var(--theme-text-muted) !important;
+}
+
+html.dark [style*="color:#374151"],
+html.dark [style*="color: #374151"],
+html.dark [style*="color:#334155"],
+html.dark [style*="color: #334155"] {
+  color: var(--theme-text-secondary) !important;
+}
+
+html.dark [style*="box-shadow: 0 10px 30px rgba(15, 23, 42"],
+html.dark [style*="box-shadow: 0 10px 25px rgba(15, 23, 42"],
+html.dark [style*="box-shadow: 0 12px 32px rgba(15, 23, 42"],
+html.dark [style*="box-shadow: 0 16px 36px rgba(15, 23, 42"],
+html.dark [style*="box-shadow:0 10px 30px rgba(15,23,42"],
+html.dark [style*="box-shadow:0 10px 25px rgba(15,23,42"],
+html.dark [style*="box-shadow:0 12px 32px rgba(15,23,42"],
+html.dark [style*="box-shadow:0 16px 36px rgba(15,23,42"] {
+  box-shadow: var(--theme-shadow-overlay) !important;
+}
+
+html.dark [style*="border: 1px solid #000"],
+html.dark [style*="border:1px solid #000"],
+html.dark [style*="border-color:#000"],
+html.dark [style*="border-color: #000"] {
+  border-color: var(--theme-border) !important;
+}
+
+/* Inline black CTA backgrounds in legacy pages */
+html.dark [style*="background-color:#000"],
+html.dark [style*="background-color: #000"] {
+  background-color: var(--theme-cta-bg) !important;
+}
+
+/* Inline SVG icon colors (many legacy pages hardcode these) */
+html.dark svg [fill='#111827'],
+html.dark svg [fill="#111827"],
+html.dark svg [fill='#0f172a'],
+html.dark svg [fill="#0f172a"],
+html.dark svg [fill='#000'],
+html.dark svg [fill="#000"] {
+  fill: var(--theme-text-primary) !important;
+}
+
+html.dark svg [stroke='#111827'],
+html.dark svg [stroke="#111827"],
+html.dark svg [stroke='#0f172a'],
+html.dark svg [stroke="#0f172a"],
+html.dark svg [stroke='#000'],
+html.dark svg [stroke="#000"] {
+  stroke: var(--theme-text-primary) !important;
+}
+
+html.dark svg [fill='#4b5563'],
+html.dark svg [fill="#4b5563"],
+html.dark svg [stroke='#4b5563'],
+html.dark svg [stroke="#4b5563"],
+html.dark svg [fill='#64748b'],
+html.dark svg [fill="#64748b"],
+html.dark svg [stroke='#64748b'],
+html.dark svg [stroke="#64748b"],
+html.dark svg [fill='#9ca3af'],
+html.dark svg [fill="#9ca3af"],
+html.dark svg [stroke='#9ca3af'],
+html.dark svg [stroke="#9ca3af"] {
+  fill: var(--theme-text-secondary) !important;
+  stroke: var(--theme-text-secondary) !important;
+}
+
+/* Top nav search and drawer inputs: use theme surfaces */
+html.dark input.top-nav-search {
+  background-color: var(--theme-input-bg) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark input.top-nav-search::placeholder {
+  color: var(--theme-input-placeholder) !important;
+}
+
+html.dark input.top-nav-search:focus {
+  box-shadow: 0 0 0 2px var(--theme-ring);
+}
+
+html.dark input.task-title-input,
+html.dark input.drawer-meta-control,
+html.dark select.drawer-meta-control {
+  background-color: transparent !important;
+  border-color: var(--theme-input-border) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+html.dark input.task-title-input:focus,
+html.dark input.drawer-meta-control:focus,
+html.dark select.drawer-meta-control:focus {
+  border-color: var(--theme-border-strong) !important;
+}
+
+/* Login card in dark mode */
+html.dark .login-card {
+  background-color: var(--theme-surface-0) !important;
+  border-color: var(--theme-border) !important;
+}
+
+html.dark .login-card input,
+html.dark .login-card select,
+html.dark .login-card textarea {
+  border-color: var(--theme-input-border) !important;
+  background-color: var(--theme-input-bg) !important;
+  color: var(--theme-text-primary) !important;
 }
 
 /* Ensure form controls are always readable on light backgrounds */
 input,
-select,
+select {
+  color: var(--foreground);
+  background-color: var(--theme-input-bg);
+  border: 1px solid var(--theme-input-border);
+}
+
 textarea {
-  color: #111111;
-  background-color: #ffffff;
-  border: 1px solid #000000;
+  color: var(--foreground);
+  background-color: var(--theme-input-bg);
+}
+
+/* Task drawer title: display-style, border only on focus */
+input.task-title-input {
+  border: none;
+  background-color: transparent;
+}
+
+input.task-title-input:focus {
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 0.375rem; /* match rounded-md */
+  outline: none;
+}
+
+/* Task drawer metadata controls: soft, minimal */
+input.drawer-meta-control,
+select.drawer-meta-control {
+  background-color: var(--theme-input-bg);
+  border: 1px solid var(--theme-input-border);
+  box-shadow: none;
+}
+
+input.drawer-meta-control:focus,
+select.drawer-meta-control:focus {
+  border-color: var(--theme-border-strong);
+  outline: none;
+  box-shadow: none;
+}
+
+/* Top navbar search: soft, borderless, minimal */
+input.top-nav-search {
+  background-color: var(--theme-surface-2);
+  border: none;
+  border-radius: 0.75rem;
+  box-shadow: none;
+}
+
+input.top-nav-search:focus {
+  background-color: var(--theme-surface-2);
+  border: none;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--theme-ring);
+}
+
+/* Login card inputs: match light gray borders from reference */
+.login-card input,
+.login-card select,
+.login-card textarea {
+  border-color: var(--theme-input-border);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #888888;
+  color: var(--theme-input-placeholder);
 }
 
 select {
-  color: #111111;
+  color: var(--foreground);
 }
 
 /* Secondary text readable gray */
 .secondary-text {
-  color: #555555;
+  color: var(--theme-text-secondary);
 }

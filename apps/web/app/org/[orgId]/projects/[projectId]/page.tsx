@@ -7,7 +7,7 @@ import { DndContext, DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/c
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { apiFetch } from '../../../../../lib/api';
 import { mapOrgMember } from '../../../../../lib/map-org-member';
-import { TaskDrawer } from '../../../../../components/tasks/TaskDrawer';
+import { TaskDrawer, type TaskDrawerTask } from '../../../../../components/tasks/TaskDrawer';
 
 interface Project {
   id: string;
@@ -28,7 +28,7 @@ interface TaskAssignee {
 
 interface OrgMember {
   id: string;
-  email: string;
+  email: string | null;
 }
 
 interface Task {
@@ -372,7 +372,8 @@ export default function ProjectDetailPage() {
           minHeight: '100vh',
           backgroundColor: '#fff',
           fontFamily: "'Montserrat', sans-serif",
-          padding: '40px 20px',
+          padding: '20px clamp(12px, 3vw, 20px)',
+          overflowX: 'hidden',
         }}
       >
         <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
@@ -394,7 +395,9 @@ export default function ProjectDetailPage() {
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center',
+              alignItems: 'flex-start',
+              flexWrap: 'wrap',
+              gap: 10,
               marginBottom: '20px',
             }}
           >
@@ -408,7 +411,7 @@ export default function ProjectDetailPage() {
                 </p>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 onClick={handleEditProjectMeta}
                 style={{
@@ -506,6 +509,8 @@ export default function ProjectDetailPage() {
               display: 'inline-flex',
               border: '1px solid #000',
               marginBottom: '20px',
+              maxWidth: '100%',
+              overflowX: 'auto',
             }}
           >
             <button
@@ -543,9 +548,10 @@ export default function ProjectDetailPage() {
             <DndContext onDragEnd={handleDragEnd}>
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                  display: 'flex',
                   gap: '16px',
+                  overflowX: 'auto',
+                  paddingBottom: 8,
                 }}
               >
                 {effectiveSections.map((section) => (
@@ -601,8 +607,11 @@ export default function ProjectDetailPage() {
           orgId={orgId}
           task={activeTask}
           onClose={closeTaskModal}
-          onUpdated={async () => {
+          onUpdated={async (updated) => {
             await reloadTasks();
+            setActiveTask((prev) =>
+              prev && prev.id === updated.id ? { ...prev, ...updated } as Task : prev,
+            );
           }}
           onDeleted={async () => {
             await reloadTasks();
@@ -641,6 +650,7 @@ function DroppableColumn({
         border: '1px solid #000',
         padding: '12px',
         minHeight: '150px',
+        flex: '0 0 min(260px, 82vw)',
       }}
     >
       <div
@@ -747,7 +757,8 @@ function DraggableCard({
         onClick={onDelete}
         style={{
           marginTop: '6px',
-          padding: '4px 8px',
+          minHeight: '34px',
+          padding: '6px 10px',
           border: '1px solid #000',
           backgroundColor: '#fff',
           color: '#000',
@@ -887,9 +898,11 @@ function ListView({
           {tasksError}
         </div>
       )}
+      <div style={{ overflowX: 'auto' }}>
       <table
         style={{
           width: '100%',
+          minWidth: '860px',
           borderCollapse: 'collapse',
           border: '1px solid #000',
         }}
@@ -944,6 +957,7 @@ function ListView({
                   type="submit"
                   disabled={creating}
                   style={{
+                    minHeight: '34px',
                     padding: '6px 12px',
                     backgroundColor: '#000',
                     color: '#fff',
@@ -974,6 +988,7 @@ function ListView({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

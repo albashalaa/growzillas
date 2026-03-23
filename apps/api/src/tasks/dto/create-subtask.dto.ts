@@ -16,5 +16,9 @@ export class CreateSubtaskDto {
   @IsOptional()
   @IsString()
   sectionId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  priority?: string | null;
 }
 

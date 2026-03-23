@@ -13,6 +13,8 @@ import { InvitesModule } from './invites/invites.module';
 import { TasksModule } from './tasks/tasks.module';
 import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SearchModule } from './search/search.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { TenancyGuard } from './auth/guards/tenancy.guard';
 
 @Module({
@@ -29,6 +31,8 @@ import { TenancyGuard } from './auth/guards/tenancy.guard';
     TasksModule,
     UsersModule,
     NotificationsModule,
+    SearchModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [

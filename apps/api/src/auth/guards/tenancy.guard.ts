@@ -53,8 +53,17 @@ export class TenancyGuard implements CanActivate {
     const isProjectsRoute = path.startsWith('/projects');
     const isTasksRoute = path.startsWith('/tasks');
     const isUsersRoute = path.startsWith('/users');
+    const isNotificationsRoute = path.startsWith('/notifications');
+    const isSearchRoute = path.startsWith('/search');
+    const isDashboardRoute = path.startsWith('/dashboard');
     const isOrgScoped =
-      isOrgPathWithParam || isProjectsRoute || isTasksRoute || isUsersRoute;
+      isOrgPathWithParam ||
+      isProjectsRoute ||
+      isTasksRoute ||
+      isUsersRoute ||
+      isNotificationsRoute ||
+      isSearchRoute ||
+      isDashboardRoute;
 
     if (!isOrgScoped) {
       // Not an org-scoped route; no org context required.

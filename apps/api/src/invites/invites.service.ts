@@ -35,6 +35,8 @@ export class InvitesService {
           select: {
             id: true,
             email: true,
+            displayName: true,
+            avatarUrl: true,
           },
         },
       },
@@ -44,6 +46,8 @@ export class InvitesService {
     return members.map((m) => ({
       userId: m.user.id,
       email: m.user.email,
+      displayName: m.user.displayName,
+      avatarUrl: (m.user as any).avatarUrl ?? null,
       role: m.role,
       joinedAt: m.createdAt,
     }));
@@ -71,7 +75,28 @@ export class InvitesService {
     });
 
     if (existingMember) {
-      throw new ConflictException('User is already a member of this organization');
+      throw new ConflictException(
+        'This user is already a member of this workspace.',
+      );
+    }
+
+    // Check if there is already a pending invite for this email in this org
+    const now = new Date();
+    const existingPendingInvite = await this.prisma.orgInvite.findFirst({
+      where: {
+        orgId,
+        email,
+        acceptedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+    });
+
+    if (existingPendingInvite) {
+      throw new ConflictException(
+        'An invite is already pending for this email.',
+      );
     }
 
     // Check if user exists

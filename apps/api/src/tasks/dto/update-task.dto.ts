@@ -7,6 +7,10 @@ export class UpdateTaskDto {
 
   @IsOptional()
   @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
   dueDate?: string | null;
 
   @IsOptional()
@@ -16,5 +20,9 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsString()
   assigneeUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  priority?: string;
 }
 
