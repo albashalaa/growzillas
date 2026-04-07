@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { DndContext, DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
-import { apiFetch } from '../../lib/api';
+import { API_BASE_URL, apiFetch } from '../../lib/api';
 import { TaskDrawer, type TaskDrawerTask } from './TaskDrawer';
 import { useAuth } from '../../contexts/AuthContext';
 import { mapOrgMember } from '../../lib/map-org-member';
@@ -37,12 +37,14 @@ interface WorkspaceTask extends TaskDrawerTask {
   project?: {
     id: string;
     name: string;
+    logoUrl?: string | null;
   } | null;
 }
 
 interface Project {
   id: string;
   name: string;
+  logoUrl?: string | null;
 }
 
 interface ProjectSection {
@@ -90,6 +92,54 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
     return v === 'list' || v === 'board' ? (v as ViewMode) : 'board';
   })();
   const [view, setView] = useState<ViewMode>(initialView);
+
+  const projectLogoById = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const p of projects) {
+      map[p.id] = p.logoUrl ?? null;
+    }
+    return map;
+  }, [projects]);
+
+  const projectLogoByName = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const p of projects) {
+      const key = (p.name || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!(key in map)) {
+        map[key] = p.logoUrl ?? null;
+      }
+    }
+    return map;
+  }, [projects]);
+
+  const parentTitleById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of tasks) {
+      map[t.id] = t.title;
+    }
+    return map;
+  }, [tasks]);
+
+  useEffect(() => {
+    if (projects.length === 0) return;
+    setTasks((prev) =>
+      prev.map((t) => {
+        const logoUrl = projectLogoById[t.projectId];
+        if (logoUrl === undefined) return t;
+        return {
+          ...t,
+          project: t.project
+            ? { ...t.project, logoUrl: t.project.logoUrl ?? logoUrl }
+            : {
+                id: t.projectId,
+                name: t.projectName ?? '',
+                logoUrl,
+              },
+        };
+      }),
+    );
+  }, [projects, projectLogoById]);
 
   useEffect(() => {
     const v = searchParams.get('view');
@@ -195,7 +245,7 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
             priority?: string | null;
             dueDate?: string | null;
             projectId: string;
-            project?: { id: string; name: string } | null;
+            project?: { id: string; name: string; logoUrl?: string | null } | null;
             parentId?: string | null;
             section?: { id: string; name: string } | null;
             assignees: Array<{
@@ -204,8 +254,19 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
               displayName?: string | null;
               avatarUrl?: string | null;
             }>;
+            reviewer?: {
+              id: string;
+              email: string;
+              displayName?: string | null;
+              avatarUrl?: string | null;
+            } | null;
           }>;
           for (const t of list) {
+            const resolvedProject = {
+              id: t.project?.id ?? project.id,
+              name: t.project?.name ?? project.name,
+              logoUrl: t.project?.logoUrl ?? project.logoUrl ?? null,
+            };
             allTasks.push({
               id: t.id,
               title: t.title,
@@ -215,9 +276,10 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
               sectionId: t.section?.id ?? '',
               parentId: t.parentId ?? null,
               assignees: t.assignees ?? [],
-              projectName: t.project?.name ?? project.name,
+              reviewer: t.reviewer ?? null,
+              projectName: resolvedProject.name,
               sectionName: t.section?.name ?? '',
-              project: t.project ?? { id: project.id, name: project.name },
+              project: resolvedProject,
             });
           }
         }
@@ -313,6 +375,7 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
                 sectionId: updated.sectionId,
                 sectionName: section?.name ?? t.sectionName,
                 assignees: updated.assignees ?? t.assignees,
+                reviewer: updated.reviewer ?? t.reviewer ?? null,
                 parentId: updated.parentId ?? t.parentId,
               }
             : t,
@@ -333,6 +396,7 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
           sectionId: updated.sectionId,
           parentId: updated.parentId ?? null,
           assignees: updated.assignees ?? [],
+          reviewer: updated.reviewer ?? null,
           projectName: project?.name ?? '',
           sectionName: section?.name ?? '',
         },
@@ -351,6 +415,7 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
         sectionId: updated.sectionId,
         sectionName: section?.name ?? prev.sectionName,
         assignees: updated.assignees ?? prev.assignees,
+        reviewer: updated.reviewer ?? prev.reviewer ?? null,
         parentId: updated.parentId ?? prev.parentId,
       } as WorkspaceTask;
 
@@ -397,6 +462,7 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
         sectionId: res.sectionId,
         parentId: res.parentId ?? null,
         assignees: res.assignees ?? [],
+        reviewer: res.reviewer ?? null,
         projectName: project?.name ?? '',
         sectionName: section?.name ?? '',
       };
@@ -939,6 +1005,9 @@ export function OrgTasksWorkspace({ mode }: { mode: 'all' | 'mine' }) {
                     WorkspaceTask[]
                   >
                 }
+                projectLogoById={projectLogoById}
+                projectLogoByName={projectLogoByName}
+                parentTitleById={parentTitleById}
                 onCardClick={setActiveTask}
                 onAddTaskForColumn={(column) => void handleAddTask(column)}
               />
@@ -1138,6 +1207,13 @@ function TasksListView({
   onRowClick: (task: WorkspaceTask) => void;
 }) {
   const today = startOfToday();
+  const [brokenProjectLogos, setBrokenProjectLogos] = useState<Record<string, true>>({});
+  const getProjectLogoSrc = (logoUrl?: string | null) => {
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith('http')) return logoUrl;
+    const normalized = logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
+    return `${API_BASE_URL}${normalized}`;
+  };
 
   const completedCount = tasks.filter(
     (t) => (t.sectionName ?? t.sectionId ?? '') === 'Done',
@@ -1262,15 +1338,22 @@ function TasksListView({
               <th style={thStyle}>STATUS</th>
               <th style={thStyle}>PRIORITY</th>
               <th style={thStyle}>ASSIGNEES</th>
+              <th style={thStyle}>REVIEWER</th>
             </tr>
           </thead>
           <tbody>
-            {renderNestedTaskRows(tasks, onRowClick)}
+            {renderNestedTaskRows(
+              tasks,
+              onRowClick,
+              brokenProjectLogos,
+              setBrokenProjectLogos,
+              getProjectLogoSrc,
+            )}
 
             {tasks.length === 0 && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   style={{
                     padding: '12px 16px',
                     textAlign: 'center',
@@ -1293,11 +1376,17 @@ function TasksListView({
 function TasksBoardView({
   columns,
   tasksBySection,
+  projectLogoById,
+  projectLogoByName,
+  parentTitleById,
   onCardClick,
   onAddTaskForColumn,
 }: {
   columns: string[];
   tasksBySection: Record<string, WorkspaceTask[]>;
+  projectLogoById: Record<string, string | null>;
+  projectLogoByName: Record<string, string | null>;
+  parentTitleById: Record<string, string>;
   onCardClick: (task: WorkspaceTask) => void;
   onAddTaskForColumn: (column: string) => void;
 }) {
@@ -1318,6 +1407,9 @@ function TasksBoardView({
           id={col}
           title={col}
           tasks={tasksBySection[col]}
+          projectLogoById={projectLogoById}
+          projectLogoByName={projectLogoByName}
+          parentTitleById={parentTitleById}
           onCardClick={onCardClick}
           onAddTask={() => onAddTaskForColumn(col)}
         />
@@ -1330,16 +1422,29 @@ function TasksBoardColumn({
   id,
   title,
   tasks,
+  projectLogoById,
+  projectLogoByName,
+  parentTitleById,
   onCardClick,
   onAddTask,
 }: {
   id: string;
   title: string;
   tasks: WorkspaceTask[];
+  projectLogoById: Record<string, string | null>;
+  projectLogoByName: Record<string, string | null>;
+  parentTitleById: Record<string, string>;
   onCardClick: (task: WorkspaceTask) => void;
   onAddTask: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id });
+  const [brokenProjectLogos, setBrokenProjectLogos] = useState<Record<string, true>>({});
+  const getProjectLogoSrc = (logoUrl?: string | null) => {
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith('http')) return logoUrl;
+    const normalized = logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
+    return `${API_BASE_URL}${normalized}`;
+  };
 
   return (
     <div
@@ -1428,7 +1533,13 @@ function TasksBoardColumn({
             <TasksBoardCard
               key={task.id}
               task={task}
+              projectLogoById={projectLogoById}
+              projectLogoByName={projectLogoByName}
+              parentTitleById={parentTitleById}
               onClick={() => onCardClick(task)}
+              brokenProjectLogos={brokenProjectLogos}
+              setBrokenProjectLogos={setBrokenProjectLogos}
+              getProjectLogoSrc={getProjectLogoSrc}
             />
           ))}
         </ul>
@@ -1479,10 +1590,22 @@ function StatusBadge({ name }: { name: string }) {
 
 function TasksBoardCard({
   task,
+  projectLogoById,
+  projectLogoByName,
+  parentTitleById,
   onClick,
+  brokenProjectLogos,
+  setBrokenProjectLogos,
+  getProjectLogoSrc,
 }: {
   task: WorkspaceTask;
+  projectLogoById: Record<string, string | null>;
+  projectLogoByName: Record<string, string | null>;
+  parentTitleById: Record<string, string>;
   onClick: () => void;
+  brokenProjectLogos: Record<string, true>;
+  setBrokenProjectLogos: React.Dispatch<React.SetStateAction<Record<string, true>>>;
+  getProjectLogoSrc: (logoUrl?: string | null) => string | null;
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: task.id,
@@ -1536,6 +1659,30 @@ function TasksBoardCard({
     }
   };
 
+  const projectNameKey = (task.projectName || task.project?.name || '')
+    .trim()
+    .toLowerCase();
+  const resolvedProjectLogoUrl =
+    task.project?.logoUrl ??
+    projectLogoById[task.projectId] ??
+    (projectNameKey ? projectLogoByName[projectNameKey] : null) ??
+    null;
+  const logoStateKey = `${task.projectId}|${resolvedProjectLogoUrl ?? 'none'}`;
+  const parentTitle = task.parentId ? parentTitleById[task.parentId] : undefined;
+
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    typeof window !== 'undefined' &&
+    resolvedProjectLogoUrl
+  ) {
+    // Debug safety: verify logo URL reaches board card rendering.
+    console.debug('Board task project logoUrl', {
+      taskId: task.id,
+      projectId: task.projectId,
+      logoUrl: resolvedProjectLogoUrl,
+    });
+  }
+
   return (
     <li
       ref={setNodeRef}
@@ -1552,23 +1699,88 @@ function TasksBoardCard({
             color: '#6b7280',
             marginBottom: 4,
             overflowWrap: 'anywhere',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
           }}
         >
-          {task.projectName || task.project?.name}
+          {resolvedProjectLogoUrl && !brokenProjectLogos[logoStateKey] ? (
+            <img
+              src={getProjectLogoSrc(resolvedProjectLogoUrl) || ''}
+              alt={`${task.projectName || task.project?.name || 'Project'} logo`}
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 999,
+                objectFit: 'cover',
+                flexShrink: 0,
+              }}
+              onError={() =>
+                setBrokenProjectLogos((prev) => ({ ...prev, [logoStateKey]: true }))
+              }
+            />
+          ) : (
+            <span
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 999,
+                backgroundColor: '#f3f4f6',
+                color: '#9ca3af',
+                fontSize: 10,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              {(task.projectName || task.project?.name || 'P').slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span>{task.projectName || task.project?.name}</span>
         </div>
       )}
       <div style={{ cursor: 'pointer', color: '#111827', marginBottom: 4 }}>
-        <div
-          style={{
-            fontSize: '13px',
-            fontWeight: 600,
-            lineHeight: 1.3,
-            overflowWrap: 'anywhere',
-          }}
-        >
-          {task.parentId ? '↳ ' : ''}
-          {task.title}
-        </div>
+        {task.parentId ? (
+          <>
+            {parentTitle ? (
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#6b7280',
+                  lineHeight: 1.3,
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {parentTitle}
+              </div>
+            ) : null}
+            <div
+              style={{
+                marginTop: 2,
+                fontSize: 13,
+                fontWeight: 600,
+                lineHeight: 1.3,
+                overflowWrap: 'anywhere',
+              }}
+            >
+              ↳ {task.title}
+            </div>
+          </>
+        ) : (
+          <div
+            style={{
+              fontSize: '13px',
+              fontWeight: 600,
+              lineHeight: 1.3,
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {task.title}
+          </div>
+        )}
       </div>
       <div
         style={{
@@ -1635,7 +1847,16 @@ const tdStyle: React.CSSProperties = {
 function renderNestedTaskRows(
   tasks: WorkspaceTask[],
   onRowClick: (task: WorkspaceTask) => void,
+  brokenProjectLogos: Record<string, true>,
+  setBrokenProjectLogos: React.Dispatch<
+    React.SetStateAction<Record<string, true>>
+  >,
+  getProjectLogoSrc: (logoUrl?: string | null) => string | null,
 ) {
+  const titleById: Record<string, string> = {};
+  for (const t of tasks) {
+    titleById[t.id] = t.title;
+  }
   // Group tasks by parent/child for nested display, similar to project page list view
   const topLevelTasks = tasks.filter((t) => !t.parentId);
 
@@ -1658,7 +1879,7 @@ function renderNestedTaskRows(
           color: '#9ca3af',
         }}
       >
-        Subtask
+        ↳ {task.title}
       </div>
     ) : null;
 
@@ -1672,22 +1893,71 @@ function renderNestedTaskRows(
         }}
       >
         <div>
-          <div
-            style={{
-              fontWeight: isSubtask ? 500 : 600,
-              fontSize: isSubtask ? 12 : 13,
-              color: isSubtask ? '#4b5563' : '#111827',
-            }}
-          >
-            {task.title}
-          </div>
+          {isSubtask && task.parentId && titleById[task.parentId] ? (
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: 11,
+                color: '#6b7280',
+              }}
+            >
+              {titleById[task.parentId]}
+            </div>
+          ) : null}
+          {!isSubtask ? (
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: 13,
+                color: '#111827',
+              }}
+            >
+              {task.title}
+            </div>
+          ) : null}
           {renderSubtaskHint(task)}
         </div>
       </td>
       <td style={tdStyle}>
         {task.projectName || task.project?.name ? (
-          <span style={{ fontSize: 12, color: '#6b7280' }}>
-            {task.projectName || task.project?.name}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {(() => {
+              const listLogoUrl = task.project?.logoUrl ?? null;
+              const listLogoStateKey = `${task.projectId}|${listLogoUrl ?? 'none'}`;
+              return listLogoUrl && !brokenProjectLogos[listLogoStateKey] ? (
+              <img
+                src={getProjectLogoSrc(listLogoUrl) || ''}
+                alt={`${task.projectName || task.project?.name || 'Project'} logo`}
+                style={{ width: 18, height: 18, borderRadius: 6, objectFit: 'cover' }}
+                onError={() =>
+                  setBrokenProjectLogos((prev) => ({
+                    ...prev,
+                    [listLogoStateKey]: true,
+                  }))
+                }
+              />
+              ) : (
+              <span
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 6,
+                  backgroundColor: '#f3f4f6',
+                  color: '#9ca3af',
+                  fontSize: 10,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 600,
+                }}
+              >
+                {(task.projectName || task.project?.name || 'P').slice(0, 1).toUpperCase()}
+              </span>
+              );
+            })()}
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {task.projectName || task.project?.name}
+            </span>
           </span>
         ) : (
           <span style={{ fontSize: 11, color: '#9ca3af' }}>—</span>
@@ -1730,6 +2000,21 @@ function renderNestedTaskRows(
               </span>
             )}
           </div>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td style={tdStyle}>
+        {task.reviewer ? (
+          <UserAvatar
+            avatarUrl={task.reviewer.avatarUrl}
+            displayName={task.reviewer.displayName}
+            email={task.reviewer.email}
+            size={24}
+            title={(task.reviewer.displayName ?? task.reviewer.email) || ''}
+            style={{ backgroundColor: '#e5e7eb' }}
+            fallbackTextClassName="text-[10px] font-semibold text-slate-500"
+          />
         ) : (
           '—'
         )}

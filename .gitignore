@@ -8,3 +8,9 @@ screenshots/
 .pnpm-store
 repo-backups/
 repo-backups/
+apps/api/uploads/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/

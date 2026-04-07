@@ -1,9 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import type { NotificationItem } from '@/lib/notifications';
+import { getNotificationTitle } from '@/lib/notification-copy';
+import {
+  Bell,
+  CheckCircle2,
+  Clock3,
+  MessageCircle,
+  MessageSquare,
+  UserPlus,
+} from 'lucide-react';
 
 export default function OrgNotificationsPage() {
   const params = useParams();
@@ -15,19 +24,47 @@ export default function OrgNotificationsPage() {
   const [error, setError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
 
-  const loadNotifications = async () => {
+  const lastDispatchRef = useRef(0);
+
+  const getNotificationIcon = (type: string) => {
+    const normalized = (type ?? '').toUpperCase();
+
+    if (normalized.includes('MENTION')) return MessageSquare;
+    if (normalized === 'TASK_ASSIGNED' || normalized === 'SUBTASK_ASSIGNED')
+      return CheckCircle2;
+    if (normalized.includes('COMMENT')) return MessageCircle;
+    if (normalized.includes('DUE_SOON') || normalized.includes('DUE'))
+      return Clock3;
+    if (normalized.includes('MEMBER') && normalized.includes('JOIN'))
+      return UserPlus;
+
+    return Bell;
+  };
+
+  const loadNotifications = async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
       const data = await apiFetch('/notifications', {
         headers: { 'x-org-id': orgId },
         cache: 'no-store',
       });
       setNotifications(Array.isArray(data) ? (data as NotificationItem[]) : []);
-      setError('');
+      if (!silent) setError('');
+
+      // Keep sidebar unread count in sync.
+      if (typeof window !== 'undefined') {
+        const now = Date.now();
+        if (now - lastDispatchRef.current > 5000) {
+          window.dispatchEvent(new Event('notifications-updated'));
+          lastDispatchRef.current = now;
+        }
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load notifications');
-      setNotifications([]);
+      if (!silent) {
+        setError(err.message || 'Failed to load notifications');
+        setNotifications([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -45,6 +82,15 @@ export default function OrgNotificationsPage() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
+  }, [orgId]);
+
+  // Poll for notification updates while the page is open.
+  useEffect(() => {
+    const intervalMs = 10000;
+    const id = window.setInterval(() => {
+      void loadNotifications({ silent: true });
+    }, intervalMs);
+    return () => window.clearInterval(id);
   }, [orgId]);
 
   const handleOpenNotification = async (n: NotificationItem) => {
@@ -196,7 +242,10 @@ export default function OrgNotificationsPage() {
                           : 'bg-sky-100 text-sky-600'
                       }`}
                     >
-                      <span>!</span>
+                      {(() => {
+                        const Icon = getNotificationIcon(n.type);
+                        return <Icon size={16} />;
+                      })()}
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -208,9 +257,7 @@ export default function OrgNotificationsPage() {
                               : 'font-semibold text-slate-900'
                           }`}
                         >
-                          {(n.actorDisplayName && n.actorDisplayName.trim()) ||
-                            'Someone'}{' '}
-                          mentioned you in {n.taskTitle || 'a task'}
+                          {getNotificationTitle(n)}
                         </p>
                         <span className="whitespace-nowrap text-[11px] text-slate-400">
                           {new Date(n.createdAt).toLocaleTimeString(undefined, {
@@ -219,7 +266,7 @@ export default function OrgNotificationsPage() {
                           })}
                         </span>
                       </div>
-                      {n.commentBody && (
+                      {n.commentBody && n.type !== 'AUTOMATION' && (
                         <p className="mt-1 text-[12px] text-slate-500">
                           {n.commentBody.length > 140
                             ? `${n.commentBody.slice(0, 137)}…`

@@ -5,6 +5,8 @@ export const NotificationTypes = {
   TASK_COMMENTED: 'TASK_COMMENTED',
   TASK_DUE_SOON: 'TASK_DUE_SOON',
   MEMBER_JOINED: 'MEMBER_JOINED',
+  /** Automation rule fired (payload in linked activity story metadata). */
+  AUTOMATION: 'AUTOMATION',
 } as const;
 
 export type NotificationType =

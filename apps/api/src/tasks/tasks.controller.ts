@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -24,6 +25,22 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+
+const ATTACHMENT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'text/plain',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
 
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
@@ -206,7 +223,18 @@ export class TasksController {
    * Upload a file attachment for a task (or subtask) in the current org.
    */
   @Post(':id/attachments')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: ATTACHMENT_MAX_FILE_SIZE_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+          cb(new BadRequestException('Unsupported attachment file type'), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   async uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: any,

@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import { useParams, useRouter } from 'next/navigation';
-import { apiFetch } from '../../../../lib/api';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { API_BASE_URL, apiFetch, apiFetchFormData } from '../../../../lib/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { PrimaryActionButton } from '../../../../components/ui/PrimaryActionButton';
 import {
@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  Users,
   X,
 } from 'lucide-react';
 
@@ -23,6 +22,7 @@ interface Project {
   id: string;
   name: string;
   description?: string | null;
+  logoUrl?: string | null;
   category?: string | null;
   status?: string | null;
 }
@@ -95,6 +95,7 @@ function ProjectStatusBadge({ status }: { status: string }) {
 export default function OrgProjectsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const orgId = params.orgId as string;
 
@@ -120,8 +121,13 @@ export default function OrgProjectsPage() {
   const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [newProjectLogoUrl, setNewProjectLogoUrl] = useState<string | null>(null);
+  const [newProjectLogoFile, setNewProjectLogoFile] = useState<File | null>(null);
+  const [removeProjectLogo, setRemoveProjectLogo] = useState(false);
+  const [brokenLogoIds, setBrokenLogoIds] = useState<Record<string, true>>({});
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [hasOpenedEditFromUrl, setHasOpenedEditFromUrl] = useState(false);
 
   const loadProjects = async () => {
     if (!user) return;
@@ -142,6 +148,18 @@ export default function OrgProjectsPage() {
     void loadProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, user]);
+
+  // If navigated with ?editProjectId=..., open the edit modal for that project.
+  useEffect(() => {
+    if (!projects.length) return;
+    if (hasOpenedEditFromUrl) return;
+    const editProjectId = searchParams.get('editProjectId');
+    if (!editProjectId) return;
+    const target = projects.find((p) => p.id === editProjectId);
+    if (!target) return;
+    setHasOpenedEditFromUrl(true);
+    void handleOpenEdit(target);
+  }, [projects, searchParams, hasOpenedEditFromUrl]);
 
   useEffect(() => {
     if (!isCategoryDropdownOpen) return;
@@ -186,6 +204,9 @@ export default function OrgProjectsPage() {
     setNewProjectSections(createDefaultSections());
     setNewSectionInput('');
     setIsCategoryDropdownOpen(false);
+    setNewProjectLogoUrl(null);
+    setNewProjectLogoFile(null);
+    setRemoveProjectLogo(false);
   };
 
   const handleOpenCreateModal = () => {
@@ -209,6 +230,9 @@ export default function OrgProjectsPage() {
     setNewProjectStatus(
       (p.status as any) ?? ('Onboarding' as const),
     );
+    setNewProjectLogoUrl(p.logoUrl ?? null);
+    setNewProjectLogoFile(null);
+    setRemoveProjectLogo(false);
     setNewSectionInput('');
     setIsCategoryDropdownOpen(false);
 
@@ -260,6 +284,7 @@ export default function OrgProjectsPage() {
     setCreateError('');
 
     try {
+      let targetProjectId: string | null = null;
       if (projectModalMode === 'create') {
         const created = await apiFetch('/projects', {
           method: 'POST',
@@ -273,11 +298,18 @@ export default function OrgProjectsPage() {
           }),
         });
 
-        const createdProjectId = (created as any)?.id;
-        if (createdProjectId) {
+        targetProjectId = (created as any)?.id ?? null;
+        if (targetProjectId) {
+          if (newProjectLogoFile) {
+            const formData = new FormData();
+            formData.append('file', newProjectLogoFile);
+            await apiFetchFormData(`/projects/${targetProjectId}/logo`, formData, {
+              headers: { 'x-org-id': orgId },
+            });
+          }
           window.dispatchEvent(
             new CustomEvent('project:sections-updated', {
-              detail: { projectId: createdProjectId },
+              detail: { projectId: targetProjectId },
             }),
           );
         }
@@ -301,11 +333,24 @@ export default function OrgProjectsPage() {
           }),
         });
 
-        const updatedProjectId = (updated as any)?.id ?? editingProjectId;
-        if (updatedProjectId) {
+        targetProjectId = (updated as any)?.id ?? editingProjectId;
+        if (targetProjectId) {
+          if (removeProjectLogo) {
+            await apiFetch(`/projects/${targetProjectId}/logo`, {
+              method: 'DELETE',
+              headers: { 'x-org-id': orgId },
+            });
+          }
+          if (newProjectLogoFile) {
+            const formData = new FormData();
+            formData.append('file', newProjectLogoFile);
+            await apiFetchFormData(`/projects/${targetProjectId}/logo`, formData, {
+              headers: { 'x-org-id': orgId },
+            });
+          }
           window.dispatchEvent(
             new CustomEvent('project:sections-updated', {
-              detail: { projectId: updatedProjectId },
+              detail: { projectId: targetProjectId },
             }),
           );
         }
@@ -420,6 +465,16 @@ export default function OrgProjectsPage() {
 
     setDraggingSectionId(null);
   };
+
+  const getLogoSrc = (logoUrl?: string | null) => {
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith('http')) return logoUrl;
+    const normalized = logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
+    return `${API_BASE_URL}${normalized}`;
+  };
+
+  const hasExistingProjectLogo =
+    !!newProjectLogoUrl && !removeProjectLogo && !newProjectLogoFile;
 
   return (
     <>
@@ -561,9 +616,13 @@ export default function OrgProjectsPage() {
                     key={p.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => router.push(`/org/${orgId}/tasks?projectId=${p.id}&view=board`)}
+                    onClick={() =>
+                      router.push(`/org/${orgId}/projects/${p.id}?view=board`)
+                    }
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') router.push(`/org/${orgId}/tasks?projectId=${p.id}&view=board`);
+                      if (e.key === 'Enter') {
+                        router.push(`/org/${orgId}/projects/${p.id}?view=board`);
+                      }
                     }}
                     style={{
                       textAlign: 'left',
@@ -588,7 +647,26 @@ export default function OrgProjectsPage() {
                           justifyContent: 'center',
                         }}
                       >
-                        <FolderKanban size={16} color="currentColor" />
+                        {p.logoUrl && !brokenLogoIds[`${p.id}|${p.logoUrl}`] ? (
+                          <img
+                            src={getLogoSrc(p.logoUrl) || ''}
+                            alt={`${p.name} logo`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              borderRadius: 12,
+                            }}
+                            onError={() =>
+                              setBrokenLogoIds((prev) => ({
+                                ...prev,
+                                [`${p.id}|${p.logoUrl}`]: true,
+                              }))
+                            }
+                          />
+                        ) : (
+                          <FolderKanban size={16} color="currentColor" />
+                        )}
                       </div>
                       <ProjectCardMenu
                         project={p}
@@ -635,36 +713,6 @@ export default function OrgProjectsPage() {
                       </div>
                       <ProjectStatusBadge status={status} />
                     </div>
-                    <div
-                      style={{
-                        marginTop: 12,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'flex-start',
-                        gap: 10,
-                        fontSize: 11,
-                        color: '#9ca3af',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          <Users size={13} />
-                          <span>4</span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 );
                 })}
@@ -709,6 +757,56 @@ export default function OrgProjectsPage() {
             <form onSubmit={handleSubmitProjectModal} className="px-4 pb-4 pt-3 sm:px-5">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
+                      Client Logo
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                        {newProjectLogoFile ? (
+                          <img
+                            src={URL.createObjectURL(newProjectLogoFile)}
+                            alt="Selected project logo"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : hasExistingProjectLogo ? (
+                          <img
+                            src={getLogoSrc(newProjectLogoUrl) || ''}
+                            alt="Current project logo"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-slate-400">
+                            <FolderKanban size={16} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          onChange={(e) => {
+                            const selected = e.target.files?.[0] ?? null;
+                            setNewProjectLogoFile(selected);
+                            setRemoveProjectLogo(false);
+                          }}
+                          className="block w-full text-[12px] text-slate-500 file:mr-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-slate-700 hover:file:bg-slate-50"
+                        />
+                        {projectModalMode === 'edit' && (newProjectLogoUrl || newProjectLogoFile) ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewProjectLogoFile(null);
+                              setRemoveProjectLogo(true);
+                            }}
+                            className="mt-2 text-[12px] font-medium text-rose-600 hover:text-rose-700"
+                          >
+                            Remove logo
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
                   <div>
                     <label htmlFor="project-name" className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
                       Project Name
@@ -880,27 +978,6 @@ export default function OrgProjectsPage() {
                         aria-label="Add section"
                       >
                         <Plus size={14} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="pt-1">
-                    <label className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
-                      Templates (Coming Soon)
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400"
-                      >
-                        Kanban Board
-                      </button>
-                      <button
-                        type="button"
-                        disabled
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400"
-                      >
-                        Scrum Sprint
                       </button>
                     </div>
                   </div>

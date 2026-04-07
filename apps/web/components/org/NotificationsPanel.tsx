@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import type { NotificationItem } from '@/lib/notifications';
+import { getNotificationTitle } from '@/lib/notification-copy';
 import {
   Bell,
   CheckCircle2,
@@ -26,6 +27,7 @@ export function NotificationsPanel({ orgId, onClose }: NotificationsPanelProps) 
   const [error, setError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const lastDispatchRef = useRef(0);
 
   const getNotificationIcon = (type: string) => {
     const normalized = (type ?? '').toUpperCase();
@@ -45,33 +47,32 @@ export function NotificationsPanel({ orgId, onClose }: NotificationsPanelProps) 
     return Bell;
   };
 
-  const getNotificationTitle = (n: NotificationItem) => {
-    const actor = (n.actorDisplayName && n.actorDisplayName.trim()) || 'Someone';
-    const task = n.taskTitle || 'a task';
-    const type = (n.type ?? '').toUpperCase();
-
-    if (type === 'COMMENT_MENTION') return `${actor} mentioned you in ${task}`;
-    if (type === 'TASK_ASSIGNED') return `${actor} assigned you to ${task}`;
-    if (type === 'SUBTASK_ASSIGNED') return `${actor} assigned you to ${task}`;
-    if (type === 'TASK_COMMENTED') return `${actor} commented on ${task}`;
-    if (type === 'TASK_DUE_SOON') return `${task} is due soon`;
-
-    return `${actor} updated ${task}`;
-  };
-
-  const loadNotifications = async () => {
+  const loadNotifications = async ({
+    silent = false,
+  }: { silent?: boolean } = {}) => {
     try {
       const data = await apiFetch('/notifications', {
         headers: { 'x-org-id': orgId },
         cache: 'no-store',
       });
       setNotifications(Array.isArray(data) ? (data as NotificationItem[]) : []);
-      setError('');
+      if (!silent) setError('');
+
+      // Keep sidebar unread count in sync.
+      if (typeof window !== 'undefined') {
+        const now = Date.now();
+        if (now - lastDispatchRef.current > 5000) {
+          window.dispatchEvent(new Event('notifications-updated'));
+          lastDispatchRef.current = now;
+        }
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load notifications');
-      setNotifications([]);
+      if (!silent) {
+        setError(err.message || 'Failed to load notifications');
+        setNotifications([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -88,6 +89,15 @@ export function NotificationsPanel({ orgId, onClose }: NotificationsPanelProps) 
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
+  }, [orgId]);
+
+  // Poll for notifications while the drawer is open.
+  useEffect(() => {
+    const intervalMs = 10000;
+    const id = window.setInterval(() => {
+      void loadNotifications({ silent: true });
+    }, intervalMs);
+    return () => window.clearInterval(id);
   }, [orgId]);
 
   useEffect(() => {
@@ -291,7 +301,7 @@ export function NotificationsPanel({ orgId, onClose }: NotificationsPanelProps) 
                           })}
                         </span>
                       </div>
-                      {n.commentBody && (
+                      {n.commentBody && n.type !== 'AUTOMATION' && (
                         <p className="mt-1 text-[12px] text-slate-500">
                           {n.commentBody.length > 140
                             ? `${n.commentBody.slice(0, 137)}…`

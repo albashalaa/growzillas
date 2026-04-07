@@ -23,6 +23,7 @@ export class NotificationsService {
       NotificationTypes.SUBTASK_ASSIGNED,
       NotificationTypes.TASK_COMMENTED,
       NotificationTypes.TASK_DUE_SOON,
+      NotificationTypes.AUTOMATION,
     ];
 
     const notifications = await this.prisma.notification.findMany({
@@ -90,6 +91,7 @@ export class NotificationsService {
       NotificationTypes.SUBTASK_ASSIGNED,
       NotificationTypes.TASK_COMMENTED,
       NotificationTypes.TASK_DUE_SOON,
+      NotificationTypes.AUTOMATION,
     ];
 
     const unreadCount = await this.prisma.notification.count({

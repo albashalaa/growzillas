@@ -25,6 +25,22 @@ export class InvitesService {
     return user.orgId;
   }
 
+  private getFrontendUrl(): string {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL')?.trim();
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (!frontendUrl) {
+      if (isProduction) {
+        throw new Error(
+          'Missing FRONTEND_URL in production. Invite links require a configured frontend URL.',
+        );
+      }
+      return 'http://localhost:3000';
+    }
+
+    return frontendUrl;
+  }
+
   async getMembers(user: RequestUser) {
     const orgId = this.getOrgId(user);
 
@@ -125,10 +141,7 @@ export class InvitesService {
       },
     });
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-
-    const inviteLink = `${frontendUrl}/invite?token=${invite.token}`;
+    const inviteLink = `${this.getFrontendUrl()}/invite?token=${invite.token}`;
 
     return {
       inviteId: invite.id,
@@ -278,9 +291,6 @@ export class InvitesService {
       },
     });
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-
     return invites.map((invite) => ({
       id: invite.id,
       email: invite.email,
@@ -288,7 +298,7 @@ export class InvitesService {
       createdAt: invite.createdAt,
       expiresAt: invite.expiresAt,
       createdByEmail: invite.createdBy.email,
-      inviteLink: `${frontendUrl}/invite?token=${invite.token}`,
+      inviteLink: `${this.getFrontendUrl()}/invite?token=${invite.token}`,
     }));
   }
 
@@ -322,10 +332,7 @@ export class InvitesService {
       },
     });
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-
-    const inviteLink = `${frontendUrl}/invite?token=${updated.token}`;
+    const inviteLink = `${this.getFrontendUrl()}/invite?token=${updated.token}`;
 
     return {
       inviteId: updated.id,

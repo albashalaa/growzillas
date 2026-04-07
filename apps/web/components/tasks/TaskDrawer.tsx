@@ -8,7 +8,7 @@ import { mapOrgMember } from '../../lib/map-org-member';
 import { getToken } from '../../lib/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../ui/UserAvatar';
-import { History, ExternalLink, MoreHorizontal, ChevronRight, Calendar, Check, ArrowLeft, Trash2 } from 'lucide-react';
+import { MoreHorizontal, ChevronRight, Calendar, Check, ArrowLeft, Trash2 } from 'lucide-react';
 
 interface TaskAssignee {
   id: string;
@@ -76,10 +76,13 @@ export interface TaskDrawerTask {
   project?: {
     id: string;
     name: string;
+    logoUrl?: string | null;
   } | null;
   sectionId: string;
   parentId?: string | null;
   assignees: TaskAssignee[];
+  reviewerId?: string | null;
+  reviewer?: TaskAssignee | null;
 }
 
 interface Subtask {
@@ -92,6 +95,7 @@ interface Subtask {
   project?: {
     id: string;
     name: string;
+    logoUrl?: string | null;
   } | null;
   sectionId: string;
   parentId: string | null;
@@ -136,6 +140,10 @@ export function TaskDrawer({
   );
   const [sectionId, setSectionId] = useState(task.sectionId);
   const [assigneeId, setAssigneeId] = useState(task.assignees?.[0]?.id ?? '');
+  const [reviewerId, setReviewerId] = useState(task.reviewerId ?? task.reviewer?.id ?? '');
+  const [reviewer, setReviewer] = useState<TaskAssignee | null>(
+    task.reviewer ?? null,
+  );
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>(
     (task.priority as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT') ?? 'MEDIUM',
   );
@@ -170,6 +178,7 @@ export function TaskDrawer({
   const [editingCommentBody, setEditingCommentBody] = useState('');
   const [savingComment, setSavingComment] = useState(false);
   const projectName = task.projectName ?? task.project?.name ?? null;
+  const projectLogoUrl = task.project?.logoUrl ?? null;
 
   useEffect(() => {
     setTitle(task.title);
@@ -177,6 +186,8 @@ export function TaskDrawer({
     setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : '');
     setSectionId(task.sectionId);
     setAssigneeId(task.assignees?.[0]?.id ?? '');
+    setReviewerId(task.reviewerId ?? task.reviewer?.id ?? '');
+    setReviewer(task.reviewer ?? null);
 
     // reset parent info when the focused task changes
     setParentTask(null);
@@ -434,6 +445,8 @@ export function TaskDrawer({
     setDueDate(res.dueDate ? new Date(res.dueDate).toISOString().slice(0, 10) : '');
     setSectionId(res.sectionId);
     setAssigneeId(res.assignees?.[0]?.id ?? '');
+    setReviewerId(res.reviewerId ?? res.reviewer?.id ?? '');
+    setReviewer(res.reviewer ?? null);
   }, []);
 
   const handleSave = async () => {
@@ -452,6 +465,7 @@ export function TaskDrawer({
       body.sectionId = sectionId;
     }
     body.assigneeUserId = assigneeId || '';
+    body.reviewerUserId = reviewerId || '';
 
     try {
       const updated = await apiFetch(`/tasks/${task.id}`, {
@@ -815,6 +829,7 @@ export function TaskDrawer({
             task={task}
             orgId={orgId}
             projectName={projectName}
+            projectLogoUrl={projectLogoUrl}
             title={title}
             saving={saving}
             parentLoading={parentLoading}
@@ -830,6 +845,8 @@ export function TaskDrawer({
             dueDate={dueDate}
             sectionId={sectionId}
             assigneeId={assigneeId}
+            reviewerId={reviewerId}
+            reviewer={reviewer}
             priority={priority}
             sections={sections}
             members={members}
@@ -838,6 +855,7 @@ export function TaskDrawer({
             onChangeDueDate={(value) => setDueDate(value)}
             onChangeSectionId={(value) => setSectionId(value)}
             onChangeAssigneeId={(value) => setAssigneeId(value)}
+            onChangeReviewerId={(value) => setReviewerId(value)}
             onChangePriority={(value) => setPriority(value)}
             onSaveField={saveField}
             onSave={handleSave}
@@ -1337,6 +1355,7 @@ interface TaskDrawerHeaderProps {
   task: TaskDrawerTask;
   orgId: string;
   projectName?: string | null;
+  projectLogoUrl?: string | null;
   title: string;
   saving: boolean;
   parentLoading: boolean;
@@ -1352,6 +1371,7 @@ function TaskDrawerHeader({
   task,
   orgId,
   projectName,
+  projectLogoUrl,
   title,
   saving,
   parentLoading,
@@ -1364,7 +1384,14 @@ function TaskDrawerHeader({
 }: TaskDrawerHeaderProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoBroken, setLogoBroken] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const logoSrc = projectLogoUrl
+    ? projectLogoUrl.startsWith('http')
+      ? projectLogoUrl
+      : `${API_BASE_URL}${projectLogoUrl.startsWith('/') ? projectLogoUrl : `/${projectLogoUrl}`}`
+    : null;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -1377,95 +1404,98 @@ function TaskDrawerHeader({
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen]);
 
+  useEffect(() => {
+    setLogoBroken(false);
+  }, [projectLogoUrl, task.projectId]);
+
   return (
     <div className="mb-7 pb-4">
-      {/* Top action row */}
-      <div className="mb-2 flex items-center gap-1.5 text-slate-400">
-        {/* Parent task button — left side, only for subtasks */}
-        {task.parentId && resolvedParentTitle ? (
-          <button
-            type="button"
-            onClick={onParentClick}
-            className="mr-auto inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <ArrowLeft size={13} className="text-slate-400" />
-            <span className="max-w-[220px] truncate">{resolvedParentTitle}</span>
-          </button>
-        ) : (
-          <div className="mr-auto" />
-        )}
-
+      {/* Parent task button — only for subtasks */}
+      {task.parentId && resolvedParentTitle ? (
         <button
           type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
-          title="Activity"
+          onClick={onParentClick}
+          className="mb-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
-          <History size={16} strokeWidth={1.6} />
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
-          title="Open task"
-        >
-          <ExternalLink size={16} strokeWidth={1.6} />
-        </button>
-
-        {/* More options — with dropdown */}
-        <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
-            title="More options"
-          >
-            <MoreHorizontal size={16} strokeWidth={1.6} />
-          </button>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-xl border border-slate-100 bg-white py-1 shadow-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDelete();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-600 transition-colors hover:bg-red-50"
-              >
-                <Trash2 size={14} strokeWidth={1.6} />
-                Delete task
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="mx-1 h-5 w-px bg-slate-200" />
-
-        {/* Close */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
-          title="Close"
-        >
-          <span className="text-[15px]">&times;</span>
-        </button>
-      </div>
-
-      {/* Divider above title */}
-      <div className="h-px w-full bg-slate-100" />
-
-      {/* Project label above title */}
-      {projectName ? (
-        <button
-          type="button"
-          onClick={() => router.push(`/org/${orgId}/tasks?projectId=${task.projectId}&view=board`)}
-          className="mt-2 inline-flex max-w-full items-center truncate text-left text-sm text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
-          title={projectName}
-        >
-          <span className="truncate">{projectName}</span>
+          <ArrowLeft size={13} className="text-slate-400" />
+          <span className="max-w-[220px] truncate">{resolvedParentTitle}</span>
         </button>
       ) : null}
+
+      {/* Header row: project context (left) + actions (right) */}
+      <div className="flex items-center justify-between gap-2 py-1 text-slate-400">
+        <div className="min-w-0 flex-1">
+          {projectName ? (
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/org/${orgId}/projects/${task.projectId}?view=board`)
+              }
+              className="inline-flex max-w-full items-center gap-2 truncate text-left text-sm text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+              title={projectName}
+            >
+              {logoSrc && !logoBroken ? (
+                <img
+                  src={logoSrc}
+                  alt={`${projectName} logo`}
+                  className="h-5 w-5 rounded-md object-cover"
+                  onError={() => setLogoBroken(true)}
+                />
+              ) : (
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-[10px] font-semibold uppercase text-slate-400">
+                  {(projectName || 'P').slice(0, 1)}
+                </span>
+              )}
+              <span className="truncate">{projectName}</span>
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* More options — with dropdown */}
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
+              title="More options"
+            >
+              <MoreHorizontal size={16} strokeWidth={1.6} />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-xl border border-slate-100 bg-white py-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDelete();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-600 transition-colors hover:bg-red-50"
+                >
+                  <Trash2 size={14} strokeWidth={1.6} />
+                  Delete task
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="mx-0.5 h-5 w-px bg-slate-200" />
+
+          {/* Close */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 hover:text-slate-700"
+            title="Close"
+          >
+            <span className="text-[15px]">&times;</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Divider between project context and task title */}
+      <div className="mt-2 h-px w-full bg-slate-100" />
 
       {/* Main title (display-style, still editable) */}
       <input
@@ -1473,7 +1503,7 @@ function TaskDrawerHeader({
         value={title}
         onChange={(e) => onTitleChange(e.target.value)}
         onBlur={onSave}
-        className="task-title-input mt-2 w-full rounded-md border-none bg-transparent px-0 text-[20px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 transition-colors duration-150"
+        className="task-title-input mt-3 w-full rounded-md border-none bg-transparent px-0 text-[20px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 transition-colors duration-150"
         placeholder="Task title"
       />
     </div>
@@ -1485,6 +1515,8 @@ interface TaskDrawerMetaFormProps {
   dueDate: string;
   sectionId: string;
   assigneeId: string;
+  reviewerId: string;
+  reviewer: TaskAssignee | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   sections: ProjectSection[];
   members: OrgMember[];
@@ -1493,6 +1525,7 @@ interface TaskDrawerMetaFormProps {
   onChangeDueDate: (value: string) => void;
   onChangeSectionId: (value: string) => void;
   onChangeAssigneeId: (value: string) => void;
+  onChangeReviewerId: (value: string) => void;
   onChangePriority: (value: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT') => void;
   onSaveField: (patch: Record<string, string>) => Promise<void>;
   onSave: () => void;
@@ -1504,6 +1537,8 @@ function TaskDrawerMetaForm({
   dueDate,
   sectionId,
   assigneeId,
+  reviewerId,
+  reviewer,
   priority,
   sections,
   members,
@@ -1512,6 +1547,7 @@ function TaskDrawerMetaForm({
   onChangeDueDate,
   onChangeSectionId,
   onChangeAssigneeId,
+  onChangeReviewerId,
   onChangePriority,
   onSaveField,
   onSave,
@@ -1520,6 +1556,12 @@ function TaskDrawerMetaForm({
 }: TaskDrawerMetaFormProps) {
   const currentSection = sections.find((s) => s.id === sectionId);
   const currentAssignee = members.find((m) => m.id === assigneeId);
+  const currentReviewer = members.find((m) => m.id === reviewerId);
+  const reviewerLabel = currentReviewer
+    ? currentReviewer.displayName || currentReviewer.email
+    : reviewer
+    ? reviewer.displayName || reviewer.email
+    : 'No reviewer';
   const dueDateLabel = dueDate
     ? new Date(dueDate).toLocaleDateString(undefined, {
         month: 'short',
@@ -1532,6 +1574,8 @@ function TaskDrawerMetaForm({
   const statusRef = useRef<HTMLDivElement | null>(null);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const assigneeRef = useRef<HTMLDivElement | null>(null);
+  const [reviewerOpen, setReviewerOpen] = useState(false);
+  const reviewerRef = useRef<HTMLDivElement | null>(null);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const priorityRef = useRef<HTMLDivElement | null>(null);
   const [dateOpen, setDateOpen] = useState(false);
@@ -1577,6 +1621,18 @@ function TaskDrawerMetaForm({
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [assigneeOpen]);
+
+  useEffect(() => {
+    if (!reviewerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (!reviewerRef.current) return;
+      if (!reviewerRef.current.contains(e.target as Node)) {
+        setReviewerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [reviewerOpen]);
 
   useEffect(() => {
     if (!priorityOpen) return;
@@ -1824,6 +1880,107 @@ function TaskDrawerMetaForm({
                                   void onSaveField({ assigneeUserId: m.id });
                                 }
                                 setAssigneeOpen(false);
+                              }}
+                              className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition-colors duration-150 ${
+                                selected
+                                  ? 'bg-slate-50 text-slate-900'
+                                  : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <span className="inline-flex items-center gap-2">
+                                <UserAvatar
+                                  avatarUrl={m.avatarUrl}
+                                  displayName={m.displayName}
+                                  email={m.email}
+                                  size={24}
+                                  className="bg-slate-100"
+                                  fallbackTextClassName="text-[11px] font-semibold text-slate-600"
+                                />
+                                <span>{label}</span>
+                              </span>
+                              {selected && (
+                                <span className="text-xs text-slate-500">✓</span>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Reviewer
+              </div>
+              <div ref={reviewerRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setReviewerOpen((v) => !v)}
+                  className="mt-1 inline-flex min-h-[32px] w-full items-center justify-between rounded-full bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm outline-none transition-colors duration-150 hover:bg-slate-50"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <UserAvatar
+                      avatarUrl={currentReviewer?.avatarUrl ?? reviewer?.avatarUrl}
+                      displayName={currentReviewer?.displayName ?? reviewer?.displayName}
+                      email={currentReviewer?.email ?? reviewer?.email ?? ''}
+                      size={24}
+                      className="bg-slate-100"
+                      fallbackTextClassName="text-[11px] font-semibold text-slate-600"
+                    />
+                    <span data-testid="task-drawer-reviewer-label">{reviewerLabel}</span>
+                  </span>
+                  <span className="text-xs text-slate-400">▾</span>
+                </button>
+
+                {reviewerOpen && (
+                  <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-56 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+                    <ul className="space-y-0.5 text-[13px] text-slate-700">
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (reviewerId !== '') {
+                              onChangeReviewerId('');
+                              void onSaveField({ reviewerUserId: '' });
+                            }
+                            setReviewerOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition-colors duration-150 ${
+                            reviewerId === ''
+                              ? 'bg-slate-50 text-slate-900'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <UserAvatar
+                              size={24}
+                              className="bg-slate-100"
+                              fallbackTextClassName="text-[11px] font-semibold text-slate-500"
+                              displayName="No reviewer"
+                              email=""
+                            />
+                            <span>No reviewer</span>
+                          </span>
+                          {reviewerId === '' && (
+                            <span className="text-xs text-slate-500">✓</span>
+                          )}
+                        </button>
+                      </li>
+                      {members.map((m) => {
+                        const selected = m.id === reviewerId;
+                        const label = m.displayName || m.email || '';
+                        return (
+                          <li key={m.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (m.id !== reviewerId) {
+                                  onChangeReviewerId(m.id);
+                                  void onSaveField({ reviewerUserId: m.id });
+                                }
+                                setReviewerOpen(false);
                               }}
                               className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition-colors duration-150 ${
                                 selected

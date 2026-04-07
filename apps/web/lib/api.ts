@@ -1,9 +1,29 @@
 import { getToken } from './auth';
 
+const rawApiBaseUrl =
+  typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : undefined;
+const isProduction =
+  typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
+
 export const API_BASE_URL =
-  typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL
-    ? process.env.NEXT_PUBLIC_API_URL
-    : 'http://localhost:3002';
+  rawApiBaseUrl || (isProduction ? '' : 'http://localhost:3002');
+
+function getApiBaseUrlOrThrow() {
+  if (API_BASE_URL) return API_BASE_URL;
+  throw new Error(
+    'Missing NEXT_PUBLIC_API_URL in production. Set a public API base URL.',
+  );
+}
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   const token = getToken();
@@ -41,7 +61,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     }
   }
 
-  const url = `${API_BASE_URL}${path}`;
+  const url = `${getApiBaseUrlOrThrow()}${path}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -62,7 +82,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     const error = await response
       .json()
       .catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    throw new ApiError(error.message || `HTTP ${response.status}`, response.status);
   }
 
   return response.json();
@@ -81,7 +101,7 @@ export async function apiFetchFormData(path: string, formData: FormData, options
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const url = `${API_BASE_URL}${path}`;
+  const url = `${getApiBaseUrlOrThrow()}${path}`;
   const response = await fetch(url, {
     ...options,
     method: options.method ?? 'POST',
@@ -93,7 +113,7 @@ export async function apiFetchFormData(path: string, formData: FormData, options
     const error = await response
       .json()
       .catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    throw new ApiError(error.message || `HTTP ${response.status}`, response.status);
   }
 
   return response.json();

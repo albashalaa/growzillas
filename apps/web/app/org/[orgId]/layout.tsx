@@ -10,7 +10,7 @@ import { API_BASE_URL } from '../../../lib/api';
 import { ChevronDown, Menu } from 'lucide-react';
 
 export default function OrgLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const params = useParams();
   const router = useRouter();
   const orgId = params.orgId as string;
@@ -48,6 +48,13 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [isProfileMenuOpen]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.push('/login');
+    }
+  }, [loading, user, router]);
 
   const handleLogout = () => {
     logout();

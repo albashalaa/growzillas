@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Get,
@@ -26,6 +27,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join, extname } from 'path';
 import * as fs from 'fs';
+
+const AVATAR_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_AVATAR_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
 
 /**
  * Authentication Controller
@@ -56,26 +65,6 @@ export class AuthController {
   @Post('check-email')
   @SkipTenancy()
   async checkEmail(@Body() dto: CheckEmailDto) {
-    // #region agent log
-    fetch('http://127.0.0.1:7890/ingest/b6e00cf5-6b04-4adc-a623-2e57a4672fd0', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '61f0a9',
-      },
-      body: JSON.stringify({
-        sessionId: '61f0a9',
-        runId: 'auth-check-email',
-        hypothesisId: 'H1',
-        location: 'apps/api/src/auth/auth.controller.ts:checkEmail',
-        message: 'check-email hit backend',
-        data: {
-          hasEmail: !!dto?.email,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return this.authService.checkEmail(dto.email);
   }
 
@@ -232,7 +221,23 @@ export class AuthController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('me/avatar')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: AVATAR_MAX_FILE_SIZE_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_AVATAR_MIME_TYPES.has(file.mimetype)) {
+          cb(
+            new BadRequestException(
+              'Unsupported avatar file type. Allowed: jpeg, png, webp, gif',
+            ),
+            false,
+          );
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   async uploadAvatar(
     @Request() req: { user: RequestUser },
     @UploadedFile() file: any,
@@ -242,15 +247,26 @@ export class AuthController {
     if (!file || !file.buffer) {
       return { success: false, message: 'File is required' };
     }
+    if (
+      typeof file.size === 'number' &&
+      file.size > AVATAR_MAX_FILE_SIZE_BYTES
+    ) {
+      throw new BadRequestException('Avatar file is too large (max 5MB)');
+    }
+    if (!ALLOWED_AVATAR_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Unsupported avatar file type. Allowed: jpeg, png, webp, gif',
+      );
+    }
 
     const uploadsRoot = join(process.cwd(), 'uploads', 'avatars');
-    fs.mkdirSync(uploadsRoot, { recursive: true });
+    await fs.promises.mkdir(uploadsRoot, { recursive: true });
 
     const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const targetFileName = `${unique}${extname(file.originalname)}`;
     const targetPath = join(uploadsRoot, targetFileName);
 
-    fs.writeFileSync(targetPath, file.buffer);
+    await fs.promises.writeFile(targetPath, file.buffer);
 
     const fileUrl = `/uploads/avatars/${targetFileName}`;
 

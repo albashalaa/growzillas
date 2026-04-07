@@ -15,6 +15,7 @@ import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AutomationsModule } from './modules/automations/automations.module';
 import { TenancyGuard } from './auth/guards/tenancy.guard';
 
 @Module({
@@ -33,6 +34,7 @@ import { TenancyGuard } from './auth/guards/tenancy.guard';
     NotificationsModule,
     SearchModule,
     DashboardModule,
+    AutomationsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -17,9 +17,26 @@ import { PrismaModule } from '../prisma/prisma.module';
       useFactory: (configService: ConfigService): JwtModuleOptions => {
         const secret = configService.get<string>('JWT_SECRET');
         const expiresIn = configService.get<string>('JWT_EXPIRES_IN') || '7d';
+        const isProduction = process.env.NODE_ENV === 'production';
 
         if (!secret) {
           throw new Error('JWT_SECRET is not defined');
+        }
+        if (isProduction) {
+          const normalized = secret.trim().toLowerCase();
+          const insecure = new Set([
+            'super_secret_dev_key_change_later',
+            'changeme',
+            'secret',
+            'dev',
+            'development',
+            'test',
+          ]);
+          if (insecure.has(normalized) || secret.trim().length < 24) {
+            throw new Error(
+              'Unsafe JWT_SECRET in production. Configure a strong secret.',
+            );
+          }
         }
 
         return {

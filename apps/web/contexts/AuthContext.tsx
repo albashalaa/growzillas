@@ -10,7 +10,7 @@ import React, {
 } from 'react';
 import { usePathname } from 'next/navigation';
 import { getToken, setToken, clearToken } from '../lib/auth';
-import { apiFetch } from '../lib/api';
+import { ApiError, apiFetch } from '../lib/api';
 
 interface User {
   id: string;
@@ -58,8 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await apiFetch('/auth/me');
       setUser(data);
     } catch (error) {
-      clearToken();
-      setUser(null);
+      if (error instanceof ApiError && error.status === 401) {
+        clearToken();
+        setUser(null);
+      }
     } finally {
       isFetchingMeRef.current = false;
       setLoading(false);

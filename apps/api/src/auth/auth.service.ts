@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,7 +54,8 @@ export class AuthService {
    * SECURITY: Creates a User record only.
    */
   async register(registerDto: RegisterDto) {
-    const { email, password, firstName, lastName } = registerDto;
+    const { email: rawEmail, password, firstName, lastName } = registerDto;
+    const email = rawEmail.toLowerCase().trim();
 
     // ✅ SECURE: Check existing user by email only
     const existingUser = await this.prisma.user.findUnique({
@@ -77,16 +79,27 @@ export class AuthService {
       displayName = email.split('@')[0];
     }
 
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        provider: 'local',
-        firstName: normalizedFirst,
-        lastName: normalizedLast,
-        displayName,
-      },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          provider: 'local',
+          firstName: normalizedFirst,
+          lastName: normalizedLast,
+          displayName,
+        },
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Email already in use');
+      }
+      throw e;
+    }
 
     // ✅ SECURE: JWT payload only contains user info
     const payload = { sub: user.id, email: user.email };
@@ -109,7 +122,8 @@ export class AuthService {
    * SECURITY: Validates credentials, no orgId from client
    */
   async login(loginDto: LoginDto) {
-    const { email, password } = loginDto;
+    const { email: rawEmail, password } = loginDto;
+    const email = rawEmail.toLowerCase().trim();
 
     // ✅ SECURE: Lookup by email only
     const user = await this.prisma.user.findUnique({

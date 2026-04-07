@@ -2,23 +2,76 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { AutomationEngineService } from '../modules/automations/automation-engine.service';
+import type { AutomationEvent } from '../modules/automations/types/automation.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationTypes } from '../notifications/notification-types';
 import type { RequestUser } from '../auth/jwt.strategy';
 import { join, extname } from 'path';
 import * as fs from 'fs';
 
+const ATTACHMENT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'text/plain',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly automationEngine: AutomationEngineService,
+  ) {}
+
+  private async emitAutomationEvent(event: AutomationEvent): Promise<void> {
+    try {
+      await this.automationEngine.handleEvent(event);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Automation handling failed for ${event.type} (entity ${event.entityId}): ${message}`,
+      );
+    }
+  }
 
   private getOrgId(user: RequestUser): string {
     if (!user.orgId) {
       throw new BadRequestException('Organization context is required');
     }
     return user.orgId;
+  }
+
+  private parseOptionalDateOrThrow(
+    raw: string | null | undefined,
+    fieldName: string,
+  ): Date | undefined {
+    if (raw == null) {
+      return undefined;
+    }
+    if (String(raw).trim().length === 0) {
+      return undefined;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`${fieldName} must be a valid ISO date`);
+    }
+    return parsed;
   }
 
   async getTaskById(id: string, user: RequestUser) {
@@ -34,6 +87,15 @@ export class TasksService {
           select: {
             id: true,
             name: true,
+            logoUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            avatarUrl: true,
           },
         },
         section: {
@@ -73,6 +135,8 @@ export class TasksService {
       sectionId: task.sectionId,
       section: task.section,
       assignees: task.memberships.map((m) => m.user),
+      reviewerId: task.reviewerId,
+      reviewer: task.reviewer,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
@@ -95,6 +159,15 @@ export class TasksService {
           select: {
             id: true,
             name: true,
+            logoUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            avatarUrl: true,
           },
         },
         section: {
@@ -158,6 +231,8 @@ export class TasksService {
       parentId: task.parentId,
       section: task.section,
       assignees: task.memberships.map((m) => m.user),
+      reviewerId: task.reviewerId,
+      reviewer: task.reviewer,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     }));
@@ -237,11 +312,7 @@ export class TasksService {
       sectionId = firstSection.id;
     }
 
-    const dueDate =
-      input.dueDate != null &&
-      String(input.dueDate).trim().length > 0
-        ? new Date(input.dueDate)
-        : undefined;
+    const dueDate = this.parseOptionalDateOrThrow(input.dueDate, 'dueDate');
 
     const task = await this.prisma.task.create({
       data: {
@@ -328,6 +399,32 @@ export class TasksService {
       }
     }
 
+    const membershipsAfterCreate = await this.prisma.taskMembership.findMany({
+      where: { orgId, taskId: task.id, role: 'ASSIGNEE' },
+      select: { userId: true },
+    });
+    const assigneeUserIds = membershipsAfterCreate
+      .map((m) => m.userId)
+      .sort();
+
+    await this.emitAutomationEvent({
+      type: 'TASK_CREATED',
+      orgId,
+      projectId: task.projectId,
+      actorUserId: user.userId,
+      entityType: 'TASK',
+      entityId: task.id,
+      timestamp: new Date().toISOString(),
+      before: {},
+      after: {
+        title: task.title,
+        sectionId: task.sectionId,
+        priority: task.priority,
+        assigneeUserIds,
+      },
+      metadata: { projectId: task.projectId },
+    });
+
     return task;
   }
 
@@ -339,6 +436,7 @@ export class TasksService {
       dueDate?: string | null;
       sectionId?: string;
       assigneeUserId?: string;
+      reviewerUserId?: string;
       priority?: string;
     },
     user: RequestUser,
@@ -358,6 +456,7 @@ export class TasksService {
         dueDate: true,
         sectionId: true,
         priority: true,
+        reviewerId: true,
       },
     });
 
@@ -371,6 +470,7 @@ export class TasksService {
       dueDate?: Date | null;
       sectionId?: string;
       priority?: string;
+      reviewerId?: string | null;
     } = {};
 
     if (typeof input.title === 'string') {
@@ -389,7 +489,11 @@ export class TasksService {
       if (input.dueDate === null || input.dueDate.trim().length === 0) {
         data.dueDate = null;
       } else {
-        data.dueDate = new Date(input.dueDate);
+        const parsedDueDate = this.parseOptionalDateOrThrow(
+          input.dueDate,
+          'dueDate',
+        );
+        data.dueDate = parsedDueDate ?? null;
       }
     }
 
@@ -412,12 +516,68 @@ export class TasksService {
       data.sectionId = input.sectionId;
     }
 
+    if (input.reviewerUserId !== undefined) {
+      const reviewerId = input.reviewerUserId.trim();
+      if (!reviewerId) {
+        data.reviewerId = null;
+      } else {
+        const member = await this.prisma.orgMember.findFirst({
+          where: {
+            orgId,
+            userId: reviewerId,
+          },
+          select: { id: true },
+        });
+
+        if (!member) {
+          throw new BadRequestException(
+            'Reviewer must be a member of this organization',
+          );
+        }
+
+        data.reviewerId = reviewerId;
+      }
+    }
+
     const updated = await this.prisma.task.update({
       where: {
         id: existing.id,
       },
       data,
     });
+
+    if (
+      existing.sectionId !== undefined &&
+      updated.sectionId !== undefined &&
+      existing.sectionId !== updated.sectionId
+    ) {
+      const assigneeRows = await this.prisma.taskMembership.findMany({
+        where: { orgId, taskId: existing.id, role: 'ASSIGNEE' },
+        select: { userId: true },
+      });
+      const assigneeUserIds = assigneeRows.map((m) => m.userId).sort();
+
+      await this.emitAutomationEvent({
+        type: 'TASK_SECTION_CHANGED',
+        orgId,
+        projectId: existing.projectId,
+        actorUserId: user.userId,
+        entityType: 'TASK',
+        entityId: existing.id,
+        timestamp: new Date().toISOString(),
+        before: {
+          sectionId: existing.sectionId,
+          priority: existing.priority,
+          assigneeUserIds,
+        },
+        after: {
+          sectionId: updated.sectionId,
+          priority: updated.priority,
+          assigneeUserIds,
+        },
+        metadata: { taskId: existing.id, projectId: existing.projectId },
+      });
+    }
 
     // Log field-level changes as activity stories
     const oldTitle = existing.title;
@@ -484,6 +644,7 @@ export class TasksService {
         where: {
           orgId,
           taskId: existing.id,
+          role: 'ASSIGNEE',
         },
         select: { userId: true },
       });
@@ -525,6 +686,7 @@ export class TasksService {
         where: {
           orgId,
           taskId: existing.id,
+          role: 'ASSIGNEE',
         },
         select: { userId: true },
       });
@@ -537,6 +699,27 @@ export class TasksService {
         beforeIds.some((id, idx) => id !== afterIds[idx]);
 
       if (changed) {
+        await this.emitAutomationEvent({
+          type: 'TASK_ASSIGNED',
+          orgId,
+          projectId: existing.projectId,
+          actorUserId: user.userId,
+          entityType: 'TASK',
+          entityId: existing.id,
+          timestamp: new Date().toISOString(),
+          before: {
+            assigneeUserIds: beforeIds,
+            sectionId: updated.sectionId,
+            priority: updated.priority,
+          },
+          after: {
+            assigneeUserIds: afterIds,
+            sectionId: updated.sectionId,
+            priority: updated.priority,
+          },
+          metadata: { taskId: existing.id, projectId: existing.projectId },
+        });
+
         const assigneeStory = await (this.prisma as any).story.create({
           data: {
             orgId,
@@ -651,6 +834,15 @@ export class TasksService {
           select: {
             id: true,
             name: true,
+            logoUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            avatarUrl: true,
           },
         },
         section: { select: { id: true, name: true } },
@@ -675,6 +867,8 @@ export class TasksService {
       sectionId: full.sectionId,
       section: full.section,
       assignees: full.memberships.map((m) => m.user),
+      reviewerId: full.reviewerId,
+      reviewer: full.reviewer,
       createdAt: full.createdAt,
       updatedAt: full.updatedAt,
     };
@@ -722,8 +916,11 @@ export class TasksService {
       },
       select: {
         id: true,
+        projectId: true,
         parentId: true,
         dueDate: true,
+        sectionId: true,
+        priority: true,
       },
     });
 
@@ -755,12 +952,53 @@ export class TasksService {
     });
 
     if (!existingMembership) {
+      const beforeAssigneeRows = await this.prisma.taskMembership.findMany({
+        where: {
+          orgId,
+          taskId: task.id,
+          role: 'ASSIGNEE',
+        },
+        select: { userId: true },
+      });
+      const beforeAssigneeIds = beforeAssigneeRows.map((m) => m.userId).sort();
+
       await this.prisma.taskMembership.create({
         data: {
           orgId,
           taskId: task.id,
           userId,
         },
+      });
+
+      const afterAssigneeRows = await this.prisma.taskMembership.findMany({
+        where: {
+          orgId,
+          taskId: task.id,
+          role: 'ASSIGNEE',
+        },
+        select: { userId: true },
+      });
+      const afterAssigneeIds = afterAssigneeRows.map((m) => m.userId).sort();
+
+      await this.emitAutomationEvent({
+        type: 'TASK_ASSIGNED',
+        orgId,
+        projectId: task.projectId,
+        actorUserId: user.userId,
+        entityType: 'TASK',
+        entityId: task.id,
+        timestamp: new Date().toISOString(),
+        before: {
+          assigneeUserIds: beforeAssigneeIds,
+          sectionId: task.sectionId,
+          priority: task.priority,
+        },
+        after: {
+          assigneeUserIds: afterAssigneeIds,
+          sectionId: task.sectionId,
+          priority: task.priority,
+        },
+        metadata: { taskId: task.id, projectId: task.projectId },
       });
 
       // Notify newly added assignee (personal only).
@@ -874,7 +1112,7 @@ export class TasksService {
         id: taskId,
         orgId,
       },
-      select: { id: true },
+      select: { id: true, projectId: true, sectionId: true, priority: true },
     });
 
     if (!task) {
@@ -927,6 +1165,40 @@ export class TasksService {
             avatarUrl: true,
           },
         },
+      },
+    });
+
+    const assigneeRows = await this.prisma.taskMembership.findMany({
+      where: { orgId, taskId: task.id, role: 'ASSIGNEE' },
+      select: { userId: true },
+    });
+    const assigneeUserIds = assigneeRows.map((m) => m.userId).sort();
+
+    await this.emitAutomationEvent({
+      type: 'COMMENT_CREATED',
+      orgId,
+      projectId: task.projectId,
+      actorUserId: user.userId,
+      entityType: 'COMMENT',
+      entityId: story.id,
+      timestamp: new Date().toISOString(),
+      after: {
+        body,
+        taskId: task.id,
+        mentions: Array.isArray(metadata?.mentions)
+          ? [...metadata.mentions]
+          : [],
+        sectionId: task.sectionId,
+        priority: task.priority,
+        assigneeUserIds,
+      },
+      metadata: {
+        taskId: task.id,
+        projectId: task.projectId,
+        storyId: story.id,
+        mentionUserIds: Array.isArray(metadata?.mentions)
+          ? [...metadata.mentions]
+          : [],
       },
     });
 
@@ -1081,6 +1353,8 @@ export class TasksService {
       select: {
         id: true,
         projectId: true,
+        sectionId: true,
+        priority: true,
       },
     });
 
@@ -1102,6 +1376,15 @@ export class TasksService {
           select: {
             id: true,
             name: true,
+            logoUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            avatarUrl: true,
           },
         },
         section: {
@@ -1137,6 +1420,8 @@ export class TasksService {
       sectionId: task.sectionId,
       section: task.section,
       assignees: task.memberships.map((m) => m.user),
+      reviewerId: task.reviewerId,
+      reviewer: task.reviewer,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     }));
@@ -1190,10 +1475,7 @@ export class TasksService {
       }
     }
 
-    const dueDate =
-      input.dueDate != null && String(input.dueDate).trim().length > 0
-        ? new Date(input.dueDate)
-        : undefined;
+    const dueDate = this.parseOptionalDateOrThrow(input.dueDate, 'dueDate');
 
     const subtask = await this.prisma.task.create({
       data: {
@@ -1281,10 +1563,43 @@ export class TasksService {
       }
     }
 
+    const subtaskMemberships = await this.prisma.taskMembership.findMany({
+      where: { orgId, taskId: subtask.id },
+      select: { userId: true },
+    });
+    const subtaskAssigneeIds = subtaskMemberships.map((m) => m.userId).sort();
+
+    await this.emitAutomationEvent({
+      type: 'TASK_CREATED',
+      orgId,
+      projectId: subtask.projectId,
+      actorUserId: user.userId,
+      entityType: 'TASK',
+      entityId: subtask.id,
+      timestamp: new Date().toISOString(),
+      before: {},
+      after: {
+        title: subtask.title,
+        sectionId: subtask.sectionId,
+        priority: subtask.priority,
+        parentId: parent.id,
+        assigneeUserIds: subtaskAssigneeIds,
+      },
+      metadata: { projectId: subtask.projectId, parentTaskId: parent.id },
+    });
+
     const full = await this.prisma.task.findUniqueOrThrow({
       where: { id: subtask.id },
       include: {
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, logoUrl: true } },
+        reviewer: {
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
         section: { select: { id: true, name: true } },
         memberships: {
           include: {
@@ -1307,6 +1622,8 @@ export class TasksService {
       sectionId: full.sectionId,
       section: full.section,
       assignees: full.memberships.map((m) => m.user),
+      reviewerId: full.reviewerId,
+      reviewer: full.reviewer,
       createdAt: full.createdAt,
       updatedAt: full.updatedAt,
     };
@@ -1334,6 +1651,7 @@ export class TasksService {
               select: {
                 id: true,
                 name: true,
+                logoUrl: true,
               },
             },
             section: {
@@ -1341,6 +1659,15 @@ export class TasksService {
                 name: true,
               },
             },
+            reviewer: {
+              select: {
+                id: true,
+                email: true,
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+            reviewerId: true,
             updatedAt: true,
             memberships: {
               include: {
@@ -1404,6 +1731,8 @@ export class TasksService {
       projectName: m.task.project?.name ?? '',
       sectionName: m.task.section?.name ?? '',
       assignees: m.task.memberships.map((mm) => mm.user),
+      reviewerId: m.task.reviewerId,
+      reviewer: m.task.reviewer,
     }));
   }
 
@@ -1417,12 +1746,25 @@ export class TasksService {
       },
       select: {
         id: true,
+        projectId: true,
+        sectionId: true,
+        priority: true,
       },
     });
 
     if (!task) {
       throw new NotFoundException('Task not found');
     }
+
+    const beforeRemoveRows = await this.prisma.taskMembership.findMany({
+      where: {
+        orgId,
+        taskId: task.id,
+        role: 'ASSIGNEE',
+      },
+      select: { userId: true },
+    });
+    const beforeRemoveIds = beforeRemoveRows.map((m) => m.userId).sort();
 
     await this.prisma.taskMembership.deleteMany({
       where: {
@@ -1431,6 +1773,43 @@ export class TasksService {
         userId,
       },
     });
+
+    const afterRemoveRows = await this.prisma.taskMembership.findMany({
+      where: {
+        orgId,
+        taskId: task.id,
+        role: 'ASSIGNEE',
+      },
+      select: { userId: true },
+    });
+    const afterRemoveIds = afterRemoveRows.map((m) => m.userId).sort();
+
+    const assigneesChanged =
+      beforeRemoveIds.length !== afterRemoveIds.length ||
+      beforeRemoveIds.some((id, idx) => id !== afterRemoveIds[idx]);
+
+    if (assigneesChanged) {
+      await this.emitAutomationEvent({
+        type: 'TASK_ASSIGNED',
+        orgId,
+        projectId: task.projectId,
+        actorUserId: user.userId,
+        entityType: 'TASK',
+        entityId: task.id,
+        timestamp: new Date().toISOString(),
+        before: {
+          assigneeUserIds: beforeRemoveIds,
+          sectionId: task.sectionId,
+          priority: task.priority,
+        },
+        after: {
+          assigneeUserIds: afterRemoveIds,
+          sectionId: task.sectionId,
+          priority: task.priority,
+        },
+        metadata: { taskId: task.id, projectId: task.projectId },
+      });
+    }
 
     return { success: true };
   }
@@ -1449,6 +1828,15 @@ export class TasksService {
     if (!file) {
       throw new BadRequestException('File is required');
     }
+    if (
+      typeof file.size === 'number' &&
+      file.size > ATTACHMENT_MAX_FILE_SIZE_BYTES
+    ) {
+      throw new BadRequestException('Attachment is too large (max 10MB)');
+    }
+    if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('Unsupported attachment file type');
+    }
 
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, orgId },
@@ -1460,7 +1848,7 @@ export class TasksService {
     }
 
     const uploadsRoot = join(process.cwd(), 'uploads', 'tasks');
-    fs.mkdirSync(uploadsRoot, { recursive: true });
+    await fs.promises.mkdir(uploadsRoot, { recursive: true });
 
     const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const targetFileName = `${unique}${extname(file.originalname)}`;
@@ -1471,7 +1859,7 @@ export class TasksService {
     if (!file.buffer) {
       throw new BadRequestException('File buffer is missing');
     }
-    fs.writeFileSync(targetPath, file.buffer);
+    await fs.promises.writeFile(targetPath, file.buffer);
 
     const fileUrl = `/uploads/tasks/${targetFileName}`;
 

@@ -352,13 +352,13 @@ export default function OrgHomePage() {
                           tabIndex={0}
                           onClick={() =>
                             router.push(
-                              `/org/${orgId}/tasks?projectId=${p.id}&view=board`,
+                              `/org/${orgId}/projects/${p.id}?view=board`,
                             )
                           }
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               router.push(
-                                `/org/${orgId}/tasks?projectId=${p.id}&view=board`,
+                                `/org/${orgId}/projects/${p.id}?view=board`,
                               );
                             }
                           }}

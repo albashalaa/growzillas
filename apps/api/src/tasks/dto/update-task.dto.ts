@@ -23,6 +23,10 @@ export class UpdateTaskDto {
 
   @IsOptional()
   @IsString()
+  reviewerUserId?: string;
+
+  @IsOptional()
+  @IsString()
   priority?: string;
 }
 

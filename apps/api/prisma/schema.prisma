@@ -44,9 +44,11 @@ model User {
   memberships      OrgMember[]
   createdInvites   OrgInvite[]
   taskMemberships  TaskMembership[] @relation("UserTaskMemberships")
+  reviewedTasks    Task[]           @relation("TaskReviewer")
   stories          Story[]
   taskAttachments  TaskAttachment[] @relation("UserTaskAttachments")
   notifications    Notification[]
+  createdAutomationRules AutomationRule[]
 }
 
 model Organization {
@@ -59,6 +61,8 @@ model Organization {
   tasks           Task[]           @relation("OrgTasks")
   taskMemberships TaskMembership[] @relation("OrgTaskMemberships")
   notifications   Notification[]
+  automationRules      AutomationRule[]
+  automationExecutions AutomationExecution[]
 }
 
 model OrgMember {
@@ -100,6 +104,7 @@ model Project {
   orgId       String
   name        String
   description String?
+  logoUrl     String?
   category    String?
   status      String?          @default("Onboarding")
   createdAt   DateTime         @default(now())
@@ -108,6 +113,8 @@ model Project {
 
   sections    ProjectSection[]
   tasks       Task[]        @relation("ProjectTasks")
+  automationRules      AutomationRule[]
+  automationExecutions AutomationExecution[]
 
   @@index([orgId])
 }
@@ -140,10 +147,12 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   parentId    String?
+  reviewerId  String?
 
   organization Organization   @relation("OrgTasks", fields: [orgId], references: [id], onDelete: Cascade)
   project      Project        @relation("ProjectTasks", fields: [projectId], references: [id], onDelete: Cascade)
   section      ProjectSection @relation("SectionTasks", fields: [sectionId], references: [id], onDelete: Cascade)
+  reviewer     User?          @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   memberships  TaskMembership[] @relation("TaskMemberships")
   stories      Story[]
   attachments  TaskAttachment[]
@@ -155,6 +164,7 @@ model Task {
   @@index([orgId, projectId])
   @@index([orgId, sectionId])
   @@index([projectId, parentId])
+  @@index([reviewerId])
 }
 
 model TaskMembership {
@@ -227,4 +237,49 @@ model Notification {
   @@index([orgId, userId])
   @@index([storyId])
   @@unique([userId, storyId, type])
+}
+
+model AutomationRule {
+  id                String   @id @default(cuid())
+  orgId             String
+  projectId         String?
+  createdByUserId   String
+  name              String
+  description       String?
+  triggerType       String
+  triggerConfig     Json?
+  conditions        Json
+  actions           Json
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation(fields: [createdByUserId], references: [id])
+  executions   AutomationExecution[]
+
+  @@index([orgId, triggerType, isActive])
+  @@index([projectId])
+}
+
+model AutomationExecution {
+  id              String   @id @default(cuid())
+  ruleId          String
+  orgId           String
+  projectId       String?
+  eventType       String
+  entityType      String
+  entityId        String
+  status          String
+  errorMessage    String?
+  contextSnapshot Json?
+  createdAt       DateTime @default(now())
+
+  rule         AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId, createdAt])
+  @@index([orgId, eventType, createdAt])
 }

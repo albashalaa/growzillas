@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { OrgRole, Project } from '@prisma/client';
 import { CreateProjectDto } from './dto/create-project.dto';
 import type { UpdateProjectDto } from './dto/update-project.dto';
+import { extname, join } from 'path';
+import * as fs from 'fs';
 
 interface RequestUserLike {
   userId: string;
@@ -10,6 +12,14 @@ interface RequestUserLike {
   orgId?: string;
   role?: OrgRole | string;
 }
+
+const PROJECT_LOGO_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_PROJECT_LOGO_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
 
 @Injectable()
 export class ProjectsService {
@@ -289,6 +299,75 @@ export class ProjectsService {
     return this.prisma.project.update({
       where: { id },
       data: { archivedAt: null },
+    });
+  }
+
+  async uploadProjectLogo(id: string, file: any, user: RequestUserLike) {
+    const orgId = this.getOrgIdOrThrow(user);
+    if (!file || !file.buffer) {
+      throw new BadRequestException('Logo file is required');
+    }
+    if (
+      typeof file.size === 'number' &&
+      file.size > PROJECT_LOGO_MAX_FILE_SIZE_BYTES
+    ) {
+      throw new BadRequestException('Logo file is too large (max 5MB)');
+    }
+    if (!ALLOWED_PROJECT_LOGO_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Unsupported logo file type. Allowed: jpeg, png, webp, gif',
+      );
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id, orgId, archivedAt: null },
+      select: { id: true, logoUrl: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const uploadsRoot = join(process.cwd(), 'uploads', 'projects');
+    await fs.promises.mkdir(uploadsRoot, { recursive: true });
+
+    const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const targetFileName = `${unique}${extname(file.originalname)}`;
+    const targetPath = join(uploadsRoot, targetFileName);
+    await fs.promises.writeFile(targetPath, file.buffer);
+
+    const logoUrl = `/uploads/projects/${targetFileName}`;
+
+    const updated = await this.prisma.project.update({
+      where: { id: project.id },
+      data: { logoUrl } as any,
+    });
+
+    if (project.logoUrl?.startsWith('/uploads/projects/')) {
+      const oldPath = join(process.cwd(), project.logoUrl);
+      fs.unlink(oldPath, () => {});
+    }
+
+    return updated;
+  }
+
+  async deleteProjectLogo(id: string, user: RequestUserLike) {
+    const orgId = this.getOrgIdOrThrow(user);
+    const project = await this.prisma.project.findFirst({
+      where: { id, orgId, archivedAt: null },
+      select: { id: true, logoUrl: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    if (project.logoUrl?.startsWith('/uploads/projects/')) {
+      const oldPath = join(process.cwd(), project.logoUrl);
+      fs.unlink(oldPath, () => {});
+    }
+
+    return this.prisma.project.update({
+      where: { id: project.id },
+      data: { logoUrl: null } as any,
     });
   }
 }
